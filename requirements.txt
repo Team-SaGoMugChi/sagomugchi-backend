@@ -1,0 +1,23 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.0
+python-multipart==0.0.20
+python-dotenv==1.0.1
+
+# Voice/face analysis deps (see ROADMAP.md Phase 4)
+numpy==1.26.4
+librosa==0.10.2.post1
+soundfile==0.12.1
+scipy==1.13.1
+opencv-python-headless==4.10.0.84
+mediapipe==0.10.14
+
+# Firestore write (baseline persistence). mediapipe pins protobuf<5, so the
+# google-cloud-* transitive deps below are pinned to older versions that still
+# accept protobuf<5 -- plain `pip install firebase-admin` pulls newer ones that
+# require protobuf>=6 and break mediapipe. Keep these three pinned together.
+protobuf==4.25.9
+google-api-core==2.27.0
+google-cloud-firestore==2.20.2
+firebase-admin==6.6.0
