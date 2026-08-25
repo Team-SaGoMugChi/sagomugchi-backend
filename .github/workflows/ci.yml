@@ -1,0 +1,31 @@
+# PR마다 분석·테스트를 자동 실행 — 깨진 코드가 main에 들어오는 것을 막는다.
+# (CLAUDE.md §10 검증 루프의 자동화 버전)
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.41.9
+          cache: true
+
+      - name: 의존성 설치
+        run: flutter pub get
+
+      - name: 정적 분석
+        run: flutter analyze
+
+      - name: 테스트
+        run: flutter test

@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.pytest_cache/
+
+# Firebase 서비스 계정 키 (절대 커밋 금지)
+serviceAccountKey*.json
+firebase-service-account*.json

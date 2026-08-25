@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter analyze)",
+      "Bash(flutter analyze *)",
+      "Bash(flutter test)",
+      "Bash(flutter test *)",
+      "Bash(flutter devices)",
+      "Bash(flutter devices *)",
+      "Bash(flutter emulators)",
+      "Bash(adb devices)",
+      "Bash(adb devices *)",
+      "Bash(adb exec-out screencap *)"
+    ]
+  }
+}

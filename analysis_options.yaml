@@ -1,0 +1,25 @@
+# Static analysis configuration for the Oddo app.
+# Run with `flutter analyze`. Rules build on the recommended Flutter lint set.
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  errors:
+    # Treat ordering/style nits as warnings, not blockers, while prototyping.
+    directives_ordering: warning
+    require_trailing_commas: warning
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+
+linter:
+  rules:
+    - always_declare_return_types
+    - directives_ordering
+    - prefer_const_constructors
+    - prefer_const_constructors_in_immutables
+    - prefer_const_declarations
+    - prefer_final_locals
+    - prefer_single_quotes
+    - sort_child_properties_last
+    - unawaited_futures
+    - use_super_parameters

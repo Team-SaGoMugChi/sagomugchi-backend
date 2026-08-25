@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "884257635300",
+    "project_id": "oddo-emotion-diary",
+    "storage_bucket": "oddo-emotion-diary.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:884257635300:android:efb7af0bc91969e2ece5f1",
+        "android_client_info": {
+          "package_name": "app.oddo.oddo"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "884257635300-fbbfv2tvsg38br2qvt00otrc55km1k9c.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "app.oddo.oddo",
+            "certificate_hash": "79b9691211d3e9837360d3e689c8047c169cd638"
+          }
+        },
+        {
+          "client_id": "884257635300-n59kdkjnvgv9snh1jf5u5gr01aeu5e27.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCzscm6TwLgfbKSHZt_2PqWvHlQ5pKymIY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "884257635300-n59kdkjnvgv9snh1jf5u5gr01aeu5e27.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "884257635300-t0tmj7lrm8lcsf76ovcbjmdd06okgd3j.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "app.oddo.oddo"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
