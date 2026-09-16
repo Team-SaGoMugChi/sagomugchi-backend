@@ -1,3 +1,7 @@
+import pytest
+
+from app.services.text_emotion import KeywordTextEmotionClassifier
+
 import io
 import json
 
@@ -78,3 +82,8 @@ def test_analyze_step2_rejects_invalid_baseline_json():
     )
 
     assert response.status_code == 422
+
+
+@pytest.fixture(autouse=True)
+def isolated_text_classifier(monkeypatch):
+    monkeypatch.setattr("app.services.fusion.get_text_emotion_classifier", KeywordTextEmotionClassifier)

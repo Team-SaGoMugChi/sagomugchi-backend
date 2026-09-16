@@ -1,3 +1,7 @@
+import pytest
+
+from app.services.text_emotion import KeywordTextEmotionClassifier
+
 from app.services.baseline_delta import FeatureDelta
 from app.services.fusion import fuse_emotion
 
@@ -27,3 +31,8 @@ def test_fuse_emotion_with_no_deltas_still_returns_text_driven_result():
     assert result.emotion_keywords[0] == "불안"
     assert result.voice_delta == {}
     assert result.face_delta == {}
+
+
+@pytest.fixture(autouse=True)
+def isolated_text_classifier(monkeypatch):
+    monkeypatch.setattr("app.services.fusion.get_text_emotion_classifier", KeywordTextEmotionClassifier)
