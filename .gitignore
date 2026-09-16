@@ -8,3 +8,6 @@ venv/
 # Firebase 서비스 계정 키 (절대 커밋 금지)
 serviceAccountKey*.json
 firebase-service-account*.json
+
+# Downloaded model weights (never commit)
+.cache/
