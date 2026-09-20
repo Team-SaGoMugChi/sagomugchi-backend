@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     google_application_credentials: str | None = None
 
     # Phase 5+에서 사용 (아직 미확정 — ROADMAP.md 참고)
-    llm_api_key: str | None = None
+    llm_model: str = "gpt-4o-mini"
     naver_clova_api_key: str | None = None
 
 
