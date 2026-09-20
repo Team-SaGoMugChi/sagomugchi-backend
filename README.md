@@ -112,3 +112,21 @@ curl -X POST http://localhost:8000/diary/step2/analyze \
    문서에 `emotionKeywords`/`emotionIntensity`만 `set(merge=True)`로 병합 — Step1/Step3가 채운
    다른 필드를 덮어쓰지 않아야 하므로 `merge=True` 필수)
 2. `routes/step2.py`의 `analyze_step2()` 안 TODO 주석 위치에서 그 함수를 호출하도록 연결
+
+## Baseline 측정 유효성 검사
+
+`POST /baseline`은 음성·얼굴 특징이 모두 유효한 경우에만 기준값을 저장합니다.
+무음, 읽을 수 없는 파일, 얼굴 미검출, 비정상 숫자 값은 HTTP 422로 반환하며
+기존 `users/{uid}/meta/baseline` 문서는 변경하지 않습니다.
+
+```json
+{"detail": {"code": "face_not_detected", "message": "얼굴을 확인하지 못했어요. 밝은 곳에서 얼굴을 화면 중앙에 맞춰 다시 측정해주세요."}}
+```
+
+재측정 오류 코드: `invalid_audio`, `voice_not_detected`, `invalid_face_image`,
+`face_not_detected`. 앱은 새로 녹음·촬영하도록 안내해야 합니다. 연결 실패나 저장 실패는
+같은 파일로 재시도할 수 있습니다.
+
+이 검사는 측정 가능한 신호의 존재 여부만 확인합니다. 사람의 실제 발화 여부, 녹음 품질의
+정확도, 감정 상태를 검증하지 않으며, 발화 속도는 DSP 근사치이고 얼굴 값은 랜드마크 비율입니다.
+실기기의 마이크·카메라와 Firestore 서비스 계정으로 끝까지 저장되는지는 별도 확인이 필요합니다.
