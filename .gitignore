@@ -11,3 +11,17 @@ firebase-service-account*.json
 
 # Downloaded model weights (never commit)
 .cache/
+
+# Private device measurements/exports: never commit real user media.
+private_measurements/
+device_exports/
+recordings/
+captures/
+baseline_voice_*.wav
+diary_*_step1.wav
+baseline_face_*.jpg
+baseline_face_*.jpeg
+baseline_face_*.png
+CAP*.jpg
+CAP*.jpeg
+*firebase-adminsdk*.json
