@@ -1,11 +1,14 @@
 import json
 
+from starlette.concurrency import run_in_threadpool
+
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.models.fusion import FeatureDeltaOut, FusionResponse
 from app.services.baseline_delta import FeatureDelta, compute_face_delta, compute_voice_delta
 from app.services.face_features import extract_face_features
 from app.services.fusion import fuse_emotion
+from app.services.kote_emotion import MAX_TEXT_LENGTH, TextEmotionUnavailable
 from app.services.voice_features import extract_voice_features
 
 router = APIRouter(prefix="/diary", tags=["diary"])
@@ -36,7 +39,7 @@ def _delta_map_to_response(deltas: dict[str, FeatureDelta]) -> dict[str, Feature
 
 @router.post("/step2/analyze", response_model=FusionResponse)
 async def analyze_step2(
-    text: str = Form(..., description="Step1 STT 결과(또는 Step2 수정본) 원문"),
+    text: str = Form(..., min_length=1, max_length=MAX_TEXT_LENGTH, description="Step1 STT 결과(또는 Step2 수정본) 원문"),
     voice_file: UploadFile = File(...),
     face_image: UploadFile = File(...),
     baseline_voice: str = Form(
@@ -46,6 +49,8 @@ async def analyze_step2(
     user_id: str | None = Form(None, description="저장 연동 전까진 미사용. Firestore 연동 시 사용"),
     date: str | None = Form(None, description="yyyy-MM-dd. 저장 연동 전까진 미사용"),
 ) -> FusionResponse:
+    if not text.strip():
+        raise HTTPException(422, detail="text must not be blank")
     baseline_voice_map = _parse_baseline_map(baseline_voice, "baseline_voice")
     baseline_face_map = _parse_baseline_map(baseline_face, "baseline_face")
 
@@ -58,7 +63,12 @@ async def analyze_step2(
     voice_delta = compute_voice_delta(baseline_voice_map, voice_features)
     face_delta = compute_face_delta(baseline_face_map, face_features)
 
-    result = fuse_emotion(text, voice_delta, face_delta)
+    try:
+        result = await run_in_threadpool(fuse_emotion, text, voice_delta, face_delta)
+    except TextEmotionUnavailable as exc:
+        raise HTTPException(503, detail={"code": "text_emotion_unavailable", "message": "감정 분석 모델을 사용할 수 없어요. 잠시 후 다시 시도해주세요."}) from exc
+    except ValueError as exc:
+        raise HTTPException(422, detail={"code": "invalid_text", "message": "분석할 텍스트 길이와 내용을 확인해주세요."}) from exc
 
     # TODO(Firestore 키 확보 후): user_id/date를 써서
     # app.services.step2_repository.save_step2_fusion_result(user_id, date, result) 호출 →

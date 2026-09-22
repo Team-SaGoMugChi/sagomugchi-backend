@@ -56,7 +56,14 @@ def fuse_emotion(
     emotion_intensity = max(0, min(100, emotion_intensity))
 
     emotion_scores = {label: round(score * 100, 1) for label, score in text_emotion.scores.items()}
-    emotion_keywords = sorted(emotion_scores, key=emotion_scores.get, reverse=True)[:_TOP_KEYWORD_COUNT]
+    # Unknown text must not become joy/sadness through dictionary-order ties.
+    emotion_keywords = (
+        [label for label in sorted(emotion_scores, key=emotion_scores.get, reverse=True)
+         if emotion_scores[label] > 0][:_TOP_KEYWORD_COUNT]
+        if text_emotion.dominant_emotion is not None else []
+    )
+    if text_emotion.dominant_emotion is None:
+        emotion_intensity = 0
 
     return FusionResult(
         emotion_keywords=emotion_keywords,
