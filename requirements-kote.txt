@@ -1,0 +1,5 @@
+-r requirements.txt
+
+# .bin weights use restricted weights_only loading (torch >= 2.6).
+torch==2.8.0
+transformers==4.57.6
