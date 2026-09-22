@@ -9,6 +9,7 @@ class BaselineProfile(BaseModel):
     필드에는 포함하지 않는다.
     """
 
+    feature_version: int = Field(default=1, ge=1, description="Baseline feature contract version")
     user_id: str
     voice: dict[str, float] = Field(..., description="음성 기준값. 예: pitchMean, speechRate, energyMean")
     face: dict[str, float] = Field(..., description="표정 기준값. 예: eyeAspectRatio, mouthAspectRatio")
