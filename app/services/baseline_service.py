@@ -34,13 +34,23 @@ def build_baseline_profile(user_id: str, voice_bytes: bytes, face_image_bytes: b
         ) from exc
 
     voice = voice_features_to_map(voice_features)
+    # Handoff metadata is deliberately baseline-only: adding these keys to the
+    # shared feature map would silently change the existing fusion formula.
+    voice.update({
+        "voicedRatio": voice_features.voiced_ratio,
+        "durationSec": voice_features.duration_sec,
+    })
+    if voice_features.f0_std_hz is not None:
+        voice["f0Std"] = voice_features.f0_std_hz
     # No clinical quality threshold: reject only missing/non-finite measurements
     # and recordings without a measurable voiced signal.
     if (
         not isfinite(voice_features.duration_sec)
         or voice_features.duration_sec <= 0
         or not isfinite(voice_features.voiced_ratio)
-        or voice_features.voiced_ratio <= 0
+        or not 0 < voice_features.voiced_ratio <= 1
+        or voice_features.f0_std_hz is None
+        or voice_features.f0_std_hz < 0
         or voice.get("pitchMean", 0) <= 0
         or voice.get("energyMean", 0) <= 0
         or any(not isfinite(value) for value in voice.values())
