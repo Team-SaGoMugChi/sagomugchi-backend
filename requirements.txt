@@ -5,6 +5,10 @@ pydantic-settings==2.7.0
 python-multipart==0.0.20
 python-dotenv==1.0.1
 
+# 외부 API 호출(CLOVA Speech STT). CLOVA는 공식 파이썬 SDK가 없고, 아래 protobuf/
+# google-cloud 핀이 예민해서 의존성을 덜 늘리는 쪽으로 httpx만 쓴다.
+httpx==0.28.1
+
 # Voice/face analysis deps (see ROADMAP.md Phase 4)
 numpy==1.26.4
 librosa==0.10.2.post1
@@ -21,3 +25,4 @@ protobuf==4.25.9
 google-api-core==2.27.0
 google-cloud-firestore==2.20.2
 firebase-admin==6.6.0
+openai>=1.0
