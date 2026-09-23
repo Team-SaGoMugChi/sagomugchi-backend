@@ -16,6 +16,7 @@ class Settings(BaseSettings):
 
     # Phase 5+에서 사용 (아직 미확정 — ROADMAP.md 참고)
     llm_api_key: str | None = None
+    llm_model: str = "gpt-4o-mini"
 
     # Naver CLOVA Speech(STT). 도메인 하나에 Invoke URL과 Secret Key 두 값이 나오므로
     # 기존 naver_clova_api_key 한 칸으로는 담을 수 없어 둘로 나눴다.
