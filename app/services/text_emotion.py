@@ -1,27 +1,20 @@
-"""텍스트 감정 분석 — AI Hub 감성대화 말뭉치 라벨 체계(6종) 기준.
+"""Six-emotion contract. Production uses KOTE; keywords remain test-only.
 
-⚠️ 최종 모델은 아직 팀 미확정이다: ROADMAP.md는 "AI Hub 감성대화 말뭉치 + ALBERT 계열
-제공 모델 후보(KoBERT 아님), 최종 모델·담당 팀 재확인 필요(2026-07-29)"라고 못박아 뒀다.
-그래서 실제 추론은 TextEmotionClassifier 인터페이스 뒤에 플러그인 형태로 분리해뒀고,
-지금은 모델 없이도 fusion 파이프라인 전체를 돌려볼 수 있게 키워드 사전 기반 폴백
-(KeywordTextEmotionClassifier)을 기본으로 쓴다 — 정확도용이 아니라 배선 검증용이다.
-
-TODO(Phase 5): 팀이 ALBERT 체크포인트를 확정하면 TextEmotionClassifier를 구현하는
-새 클래스(예: AlbertTextEmotionClassifier)로 교체하고 get_text_emotion_classifier()만
-바꾸면 된다 — 나머지 코드(baseline_delta, fusion)는 인터페이스만 보므로 무영향.
+ALBERT / AI Hub checkpoints are not loaded. See docs/KOTE.md.
 """
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from functools import lru_cache
 
 EMOTION_LABELS = ["기쁨", "슬픔", "분노", "불안", "상처", "당황"]
 
 
 @dataclass
 class TextEmotionResult:
-    scores: dict[str, float]  # 라벨별 점수(0~1), 합이 1이 되도록 정규화
-    dominant_emotion: str | None  # 매칭되는 키워드가 하나도 없으면 None(판단 불가)
-    confidence: float  # scores[dominant_emotion]
+    scores: dict[str, float]  # 6종 상대 점수; 합 1, 판단 불가 시 모두 0 (KOTE)
+    dominant_emotion: str | None  # 근거가 부족하면 None(판단 불가)
+    confidence: float  # 근거 점수, 보정된 정확도/감정 강도가 아님
 
 
 class TextEmotionClassifier(ABC):
@@ -59,5 +52,15 @@ class KeywordTextEmotionClassifier(TextEmotionClassifier):
         return TextEmotionResult(scores=scores, dominant_emotion=dominant_emotion, confidence=scores[dominant_emotion])
 
 
+@lru_cache(maxsize=1)
 def get_text_emotion_classifier() -> TextEmotionClassifier:
-    return KeywordTextEmotionClassifier()
+    from app.core.config import get_settings
+    from app.services.kote_emotion import KoteTextEmotionClassifier
+
+    settings = get_settings()
+    return KoteTextEmotionClassifier(
+        cache_dir=settings.kote_cache_dir,
+        local_files_only=settings.kote_local_files_only,
+        device=settings.kote_device,
+        threshold=settings.kote_threshold,
+    )

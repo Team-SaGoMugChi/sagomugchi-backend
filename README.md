@@ -130,3 +130,9 @@ curl -X POST http://localhost:8000/diary/step2/analyze \
 이 검사는 측정 가능한 신호의 존재 여부만 확인합니다. 사람의 실제 발화 여부, 녹음 품질의
 정확도, 감정 상태를 검증하지 않으며, 발화 속도는 DSP 근사치이고 얼굴 값은 랜드마크 비율입니다.
 실기기의 마이크·카메라와 Firestore 서비스 계정으로 끝까지 저장되는지는 별도 확인이 필요합니다.
+
+## 텍스트 감정분류 (KOTE)
+
+감정분류 기본 모델은 KOTE이며 출력은 팀 공통 6종을 유지합니다.
+설치: python -m pip install -r requirements-kote.txt
+연동 API, 6종 대응표, 라이선스와 검증 절차: [KOTE 연동 문서](docs/KOTE.md).

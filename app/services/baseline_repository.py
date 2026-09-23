@@ -13,5 +13,6 @@ def save_baseline_profile(profile: BaselineProfile) -> None:
             "voice": profile.voice,
             "face": profile.face,
             "measuredAt": profile.measured_at,
+            "featureVersion": profile.feature_version,
         }
     )

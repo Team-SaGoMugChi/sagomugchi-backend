@@ -1,5 +1,7 @@
 from functools import lru_cache
+from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,6 +15,12 @@ class Settings(BaseSettings):
     # Firestore 쓰기(Firebase Admin SDK)용 서비스 계정 키 경로.
     # Firebase 콘솔 > 프로젝트 설정 > 서비스 계정 > 새 비공개 키 생성 (README.md 참고)
     google_application_credentials: str | None = None
+
+    # KOTE model is pinned in app/services/kote_emotion.py.
+    kote_cache_dir: str = ".cache/kote"
+    kote_local_files_only: bool = False
+    kote_device: Literal["cpu", "cuda"] = "cpu"
+    kote_threshold: float = Field(default=0.4, gt=0, le=1)
 
     # Phase 5+에서 사용 (아직 미확정 — ROADMAP.md 참고)
     llm_api_key: str | None = None

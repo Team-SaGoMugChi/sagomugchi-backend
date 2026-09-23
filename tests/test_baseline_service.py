@@ -35,6 +35,10 @@ def test_build_baseline_profile_maps_features_to_schema_keys(valid_face):
     t = np.arange(22050) / 22050
     profile = build_baseline_profile("user-1", _wav_bytes(0.5 * np.sin(2 * np.pi * 220 * t)), b"face")
     assert profile.user_id == "user-1"
+    assert profile.feature_version == 1
+    assert profile.voice["durationSec"] == pytest.approx(1.0)
+    assert 0 < profile.voice["voicedRatio"] <= 1
+    assert profile.voice["f0Std"] >= 0
     assert profile.measured_at
     assert profile.voice.keys() >= {"pitchMean", "energyMean", "speechRate"}
     assert profile.voice["pitchMean"] == pytest.approx(220.0, rel=0.1)
@@ -64,7 +68,10 @@ def test_rejects_missing_face(face, valid_voice):
 
 
 @pytest.mark.parametrize("field,value", [("f0_mean_hz", None), ("f0_mean_hz", float("nan")),
-                                         ("rms_mean", float("inf")), ("voiced_ratio", 0.0)])
+                                         ("rms_mean", float("inf")), ("voiced_ratio", 0.0),
+                                         ("voiced_ratio", 1.1), ("f0_std_hz", None),
+                                         ("f0_std_hz", -1.0), ("f0_std_hz", float("nan")),
+                                         ("duration_sec", float("inf"))])
 def test_rejects_unusable_voice_features(monkeypatch, valid_voice, valid_face, field, value):
     monkeypatch.setattr("app.services.baseline_service.extract_voice_features",
                         lambda _: replace(valid_voice, **{field: value}))
@@ -79,3 +86,22 @@ def test_rejects_nonfinite_face_features(monkeypatch, valid_voice, valid_face):
     with pytest.raises(BaselineMeasurementError) as error:
         build_baseline_profile("user-1", b"voice", b"face")
     assert error.value.code == "face_not_detected"
+
+
+def test_handoff_fields_survive_firestore_save(monkeypatch, valid_voice, valid_face):
+    from app.services import baseline_repository
+    from tests.test_baseline_repository import _FakeFirestoreClient
+    from app.services.baseline_delta import compute_voice_delta
+
+    client = _FakeFirestoreClient()
+    monkeypatch.setattr(baseline_repository, "get_firestore_client", lambda: client)
+    profile = build_baseline_profile("handoff-user", b"voice", b"face")
+    baseline_repository.save_baseline_profile(profile)
+    saved = client.collection("users").document("handoff-user").collection("meta").document("baseline").set_calls[0]
+    assert saved["featureVersion"] == 1
+    assert saved["voice"]["f0Std"] == 1.0
+    assert saved["voice"]["voicedRatio"] == 0.8
+    assert saved["voice"]["durationSec"] == 1.0
+    assert profile.model_dump()["feature_version"] == 1
+    # Metadata must not become additional terms in the existing emotion score.
+    assert set(compute_voice_delta(saved["voice"], valid_voice)) == {"pitchMean", "energyMean", "speechRate"}
