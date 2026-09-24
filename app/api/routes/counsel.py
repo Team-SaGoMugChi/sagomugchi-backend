@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
 from app.models.counsel import CounselTurnRequest, CounselTurnResponse
-from app.services import llm_client
+from app.services import counsel_context, llm_client
 from app.services.counsel_guardrail import CRISIS_REPLY, is_crisis
 from app.services.counsel_prompt import build_system_prompt
 
@@ -16,7 +16,23 @@ async def counsel_turn(payload: CounselTurnRequest) -> CounselTurnResponse:
     if is_crisis(payload.user_text):
         return CounselTurnResponse(reply=CRISIS_REPLY, crisis=True)
 
-    system_prompt = build_system_prompt(payload.persona, payload.emotions)
+    # baseline·감정 분석·일기 요약. 아직 안 넘어오는 값은 더미로 채워진다.
+    context = counsel_context.resolve(
+        emotions=payload.emotions,
+        signals=payload.signals,
+        diary_summary=payload.diary_summary,
+        recent_themes=payload.recent_themes,
+        incongruent=payload.incongruent,
+    )
+
+    system_prompt = build_system_prompt(
+        persona=payload.persona,
+        emotions=context.emotions,
+        incongruent=context.incongruent,
+        signals=context.signals,
+        diary_summary=context.diary_summary,
+        recent_themes=context.recent_themes,
+    )
     messages = [
         {
             "role": "assistant" if m.speaker == "oddo" else "user",
@@ -32,4 +48,7 @@ async def counsel_turn(payload: CounselTurnRequest) -> CounselTurnResponse:
         # 키 미설정·네트워크 오류 등 — 앱이 멈추지 않도록 폴백.
         reply = _FALLBACK
 
-    return CounselTurnResponse(reply=reply or _FALLBACK)
+    return CounselTurnResponse(
+        reply=reply or _FALLBACK,
+        used_dummy_context=context.used_dummy,
+    )
