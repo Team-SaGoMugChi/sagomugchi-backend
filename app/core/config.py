@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     llm_api_key: str | None = None
     llm_model: str = "gpt-4o-mini"
 
+    # 상담 맥락(baseline 신호·일기 요약 등)이 앱에서 안 넘어올 때 더미로 채울지.
+    # 각 파트가 실제 값을 보내기 시작하면 .env에 COUNSEL_DUMMY_CONTEXT=false.
+    counsel_dummy_context: bool = True
+
     # Naver CLOVA Speech(STT). 도메인 하나에 Invoke URL과 Secret Key 두 값이 나오므로
     # 기존 naver_clova_api_key 한 칸으로는 담을 수 없어 둘로 나눴다.
     # Secret Key는 서버에만 둔다 — 앱에 넣으면 APK에서 추출돼 과금 남용이 가능하다.
