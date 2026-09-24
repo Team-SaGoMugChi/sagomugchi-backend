@@ -25,3 +25,4 @@ baseline_face_*.png
 CAP*.jpg
 CAP*.jpeg
 *firebase-adminsdk*.json
+data/sft/*.jsonl
