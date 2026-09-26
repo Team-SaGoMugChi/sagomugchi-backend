@@ -30,8 +30,9 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4o-mini"
 
     # 상담 맥락(baseline 신호·일기 요약 등)이 앱에서 안 넘어올 때 더미로 채울지.
-    # 각 파트가 실제 값을 보내기 시작하면 .env에 COUNSEL_DUMMY_CONTEXT=false.
-    counsel_dummy_context: bool = True
+    # 실제 사용자에게 예시 감정·주제가 섞이지 않도록 기본은 false다. UI 흐름만
+    # 개발할 때 COUNSEL_DUMMY_CONTEXT=true를 명시해 켠다.
+    counsel_dummy_context: bool = False
 
     # Naver CLOVA Speech(STT). 도메인 하나에 Invoke URL과 Secret Key 두 값이 나오므로
     # 기존 naver_clova_api_key 한 칸으로는 담을 수 없어 둘로 나눴다.
