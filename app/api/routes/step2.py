@@ -5,11 +5,19 @@ from starlette.concurrency import run_in_threadpool
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.models.fusion import FeatureDeltaOut, FusionResponse
+from app.services.baseline_contract import (
+    BaselineContractError,
+    validate_analysis_baseline,
+)
 from app.services.baseline_delta import FeatureDelta, compute_face_delta, compute_voice_delta
-from app.services.face_features import extract_face_features
+from app.services.analysis_media import (
+    AnalysisMediaError,
+    AnalysisMediaUnavailable,
+    extract_analysis_features,
+    extract_daily_multimodal_features,
+)
 from app.services.fusion import fuse_emotion
 from app.services.kote_emotion import MAX_TEXT_LENGTH, TextEmotionUnavailable
-from app.services.voice_features import extract_voice_features
 
 router = APIRouter(prefix="/diary", tags=["diary"])
 
@@ -46,6 +54,12 @@ async def analyze_step2(
         "{}", description="baseline 음성 맵 (JSON 문자열) — Firestore 연동 전까지 클라이언트가 직접 전달"
     ),
     baseline_face: str = Form("{}", description="baseline 표정 맵 (JSON 문자열)"),
+    baseline_feature_version: int = Form(
+        0, description="baseline 특징 계약 버전"
+    ),
+    baseline_measured_at: str = Form(
+        "", description="baseline 측정 시각(UTC ISO-8601)"
+    ),
     user_id: str | None = Form(None, description="저장 연동 전까진 미사용. Firestore 연동 시 사용"),
     date: str | None = Form(None, description="yyyy-MM-dd. 저장 연동 전까진 미사용"),
 ) -> FusionResponse:
@@ -53,18 +67,65 @@ async def analyze_step2(
         raise HTTPException(422, detail="text must not be blank")
     baseline_voice_map = _parse_baseline_map(baseline_voice, "baseline_voice")
     baseline_face_map = _parse_baseline_map(baseline_face, "baseline_face")
+    try:
+        validate_analysis_baseline(
+            feature_version=baseline_feature_version,
+            measured_at=baseline_measured_at,
+            voice=baseline_voice_map,
+            face=baseline_face_map,
+        )
+    except BaselineContractError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "baseline_remeasurement_required", "message": str(exc)},
+        ) from exc
 
     voice_bytes = await voice_file.read()
     face_bytes = await face_image.read()
 
-    voice_features = extract_voice_features(voice_bytes)
-    face_features = extract_face_features(face_bytes)
+    try:
+        voice_features, face_features = extract_analysis_features(
+            voice_bytes, face_bytes
+        )
+    except AnalysisMediaError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
 
     voice_delta = compute_voice_delta(baseline_voice_map, voice_features)
     face_delta = compute_face_delta(baseline_face_map, face_features)
 
     try:
-        result = await run_in_threadpool(fuse_emotion, text, voice_delta, face_delta)
+        multimodal = extract_daily_multimodal_features(
+            voice_bytes,
+            face_bytes,
+            baseline_voice_map,
+            baseline_face_map,
+        )
+    except AnalysisMediaError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+    except AnalysisMediaUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "emotion_analysis_unavailable",
+                "message": "표정·음성 분석기를 사용할 수 없어요. 잠시 후 다시 시도해주세요.",
+            },
+        ) from exc
+
+    try:
+        result = await run_in_threadpool(
+            fuse_emotion,
+            text,
+            voice_delta,
+            face_delta,
+            multimodal.face,
+            multimodal.voice,
+        )
     except TextEmotionUnavailable as exc:
         raise HTTPException(503, detail={"code": "text_emotion_unavailable", "message": "감정 분석 모델을 사용할 수 없어요. 잠시 후 다시 시도해주세요."}) from exc
     except ValueError as exc:
@@ -82,4 +143,8 @@ async def analyze_step2(
         text_emotion_scores=result.text_emotion.scores,
         voice_delta=_delta_map_to_response(voice_delta),
         face_delta=_delta_map_to_response(face_delta),
+        signals=result.signals,
+        incongruent=result.incongruent,
+        incongruence_sources=result.incongruence_sources,
+        modalities=result.modalities,
     )

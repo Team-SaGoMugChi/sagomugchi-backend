@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -9,6 +10,10 @@ from app.services.kote_emotion import (
     KoteTextEmotionClassifier, TextEmotionUnavailable, project_six,
 )
 from app.services.text_emotion import EMOTION_LABELS, get_text_emotion_classifier
+from app.services.multimodal_contract import (
+    REQUIRED_FACE_MULTIMODAL_KEYS,
+    REQUIRED_VOICE_MULTIMODAL_KEYS,
+)
 
 
 def native(**values):
@@ -186,12 +191,40 @@ def test_fusion_does_not_invent_emotions_for_unknown_text(monkeypatch):
 def test_step2_reports_model_unavailability(monkeypatch):
     def fail(*args):
         raise TextEmotionUnavailable('model missing')
-    monkeypatch.setattr('app.api.routes.step2.extract_voice_features', lambda data: {})
-    monkeypatch.setattr('app.api.routes.step2.extract_face_features', lambda data: {})
+    monkeypatch.setattr(
+        'app.api.routes.step2.extract_analysis_features',
+        lambda *args: (SimpleNamespace(), SimpleNamespace()),
+    )
     monkeypatch.setattr('app.api.routes.step2.compute_voice_delta', lambda *args: {})
     monkeypatch.setattr('app.api.routes.step2.compute_face_delta', lambda *args: {})
+    monkeypatch.setattr(
+        'app.api.routes.step2.extract_daily_multimodal_features',
+        lambda *args: SimpleNamespace(face=None, voice=None),
+    )
     monkeypatch.setattr('app.api.routes.step2.fuse_emotion', fail)
-    response = TestClient(app).post('/diary/step2/analyze', data={'text': '행복하다'},
-                                   files={'voice_file': ('voice.wav', b'test'), 'face_image': ('face.png', b'test')})
+    response = TestClient(app).post(
+        '/diary/step2/analyze',
+        data={
+            'text': '행복하다',
+            'baseline_voice': json.dumps({
+                'pitchMean': 220.0, 'f0Std': 28.0, 'speechRate': 4.0,
+                'voicedRatio': 0.61, 'durationSec': 352.0, 'energyMean': 0.3,
+                **{key: 0.1 for key in REQUIRED_VOICE_MULTIMODAL_KEYS},
+                'windowCount': 2.0, 'windowUsedCount': 2.0,
+            }),
+            'baseline_face': json.dumps({
+                'eyeAspectRatio': 0.28, 'mouthAspectRatio': 0.11,
+                'mouthWidthRatio': 1.42, 'eyebrowRaiseRatio': 0.38,
+                **{key: 0.0 for key in REQUIRED_FACE_MULTIMODAL_KEYS},
+                'auFrameCount': 1.0, 'auTotalFrames': 1.0,
+            }),
+            'baseline_feature_version': '2',
+            'baseline_measured_at': '2026-09-26T10:09:43.476330Z',
+        },
+        files={
+            'voice_file': ('voice.wav', b'test'),
+            'face_image': ('face.png', b'test'),
+        },
+    )
     assert response.status_code == 503
     assert response.json()['detail']['code'] == 'text_emotion_unavailable'
