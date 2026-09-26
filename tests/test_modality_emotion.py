@@ -64,6 +64,26 @@ def test_sad_mouth_reads_as_sadness_and_hurt_equally():
     assert emotion.valence < -0.5
 
 
+def test_brief_expression_between_words_still_counts():
+    # 말하는 동안 시무룩한 표정이 1/3 프레임에서만 드러난다
+    sad = FaceAu(True, _au(0.0, au15=0.05, au17=0.1))
+    neutral = FaceAu(True, _au(0.0))
+    frames = [neutral, neutral, sad] * 4
+
+    emotion = face_emotion_from_frames(frames, _neutral_baseline())
+
+    assert max(emotion.scores, key=emotion.scores.get) in {"슬픔", "상처"}
+    assert emotion.valence <= -0.3
+
+
+def test_a_single_stray_frame_is_ignored():
+    frames = [FaceAu(True, _au(0.0))] * 11 + [FaceAu(True, _au(0.0, au12=0.8))]
+
+    emotion = face_emotion_from_frames(frames, _neutral_baseline())
+
+    assert emotion.valence == pytest.approx(0.0)
+
+
 def test_aus_dropping_below_baseline_are_not_evidence():
     baseline = face_log_summary([FaceAu(True, _au(0.3))] * 10)
     emotion = face_emotion(face_z(log_au(_au(0.0)), baseline))

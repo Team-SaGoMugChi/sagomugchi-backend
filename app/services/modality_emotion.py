@@ -11,6 +11,9 @@
     AU가 평소보다 "올라간" 만큼만 감정 근거로 친다 — 내려간 건 그 감정이 없다는 뜻이지
     다른 감정의 근거가 아니다. 슬픔과 상처는 얼굴로 구분할 수 없어(같은 AU 조합) 같은 값을
     준다. 둘을 가르는 건 텍스트다.
+    일기는 말하면서 쓰므로 표정이 발음 사이사이에만 드러난다. 녹음 전체 평균을 쓰면 묻혀서,
+    AU마다 프레임 z의 상위 25% 지점("표정이 강했던 순간")으로 요약한다(웹캠 실험에서 괜찮은
+    척 녹음의 표정 긍정도가 평균 −0.31 → 강한 순간 −0.50).
 
 음성
     목소리만으로 분노와 기쁨 같은 감정 종류를 가르는 건 어렵다. 그래서 흥분도(각성도,
@@ -40,6 +43,8 @@ LOG_EPS = 1e-3
 FACE_STD_FLOOR = 0.1
 # 이 이상 올라간 AU는 "뚜렷하다"로 보고 더 키우지 않는다(활짝 웃음은 z가 +28까지 나온다).
 FACE_Z_CAP = 5.0
+# 일기 전체 표정 요약에 쓰는 프레임 z 백분위 — 말 사이사이 드러나는 표정을 잡는다.
+FACE_PEAK_PERCENTILE = 75
 
 # 에크만 EMFACS의 감정별 AU 조합을 우리 6종에 맞춘 것.
 FACE_PROTOTYPES: dict[str, tuple[str, ...]] = {
@@ -122,11 +127,17 @@ def face_emotion(z: Mapping[str, float]) -> FaceEmotion:
 
 
 def face_emotion_from_frames(frames: Sequence[FaceAu], baseline_log: FaceAuSummary) -> FaceEmotion | None:
-    """일기 전체의 표정 감정 — 오늘 프레임들의 로그 평균을 baseline과 비교한다."""
-    today = face_log_summary(frames)
-    if today.frame_count == 0 or baseline_log.frame_count == 0:
+    """일기 전체의 표정 감정 — 프레임별 z를 AU마다 상위 25% 지점으로 요약해 판단한다."""
+    if baseline_log.frame_count == 0:
         return None
-    return face_emotion(face_z(today.mean, baseline_log))
+    frame_z = [face_z(log_au(frame.au), baseline_log) for frame in frames if frame.detected]
+    if not frame_z:
+        return None
+    peak = {
+        key: float(np.percentile([z[key] for z in frame_z], FACE_PEAK_PERCENTILE))
+        for key in frame_z[0]
+    }
+    return face_emotion(peak)
 
 
 def face_timeline(
