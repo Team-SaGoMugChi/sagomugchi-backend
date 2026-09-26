@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     kote_device: Literal["cpu", "cuda"] = "cpu"
     kote_threshold: float = Field(default=0.4, gt=0, le=1)
 
+    # 표정 AU 추출용 MediaPipe 모델. 없으면 첫 사용 때 받아온다 (app/services/face_au.py).
+    face_landmarker_model_path: str = ".cache/mediapipe/face_landmarker.task"
+
     # Phase 5+에서 사용 (아직 미확정 — ROADMAP.md 참고)
     llm_api_key: str | None = None
     llm_model: str = "gpt-4o-mini"
