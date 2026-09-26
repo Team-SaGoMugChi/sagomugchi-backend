@@ -1,5 +1,6 @@
 import io
 from dataclasses import replace
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
@@ -8,13 +9,23 @@ import soundfile as sf
 
 from app.services.baseline_service import BaselineMeasurementError, build_baseline_profile
 from app.services.face_features import FaceFeatures
+from app.services.face_au import FaceAu
 from app.services.voice_features import VoiceFeatures
+from app.services.voice_windows import VoiceWindow
 
 
 @pytest.fixture
 def valid_face(monkeypatch):
     features = FaceFeatures(True, 0.28, 0.1, 0.8, 0.3)
     monkeypatch.setattr("app.services.baseline_service.extract_face_features", lambda _: features)
+    face_au = FaceAu(True, {
+        "au1": 0.01, "au2": 0.01, "au4": 0.01, "au5": 0.01,
+        "au6": 0.01, "au7": 0.01, "au12": 0.01, "au15": 0.01, "au17": 0.01,
+    })
+    monkeypatch.setattr(
+        "app.services.baseline_service.get_face_au_extractor",
+        lambda: SimpleNamespace(extract=lambda _: face_au),
+    )
     return features
 
 
@@ -22,6 +33,10 @@ def valid_face(monkeypatch):
 def valid_voice(monkeypatch):
     features = VoiceFeatures(1.0, 220.0, 1.0, 0.8, 0.3, 0.1, 3.0)
     monkeypatch.setattr("app.services.baseline_service.extract_voice_features", lambda _: features)
+    monkeypatch.setattr(
+        "app.services.baseline_service.analyze_windows",
+        lambda _: [VoiceWindow(0.0, 3.0, 0.8, 220.0, 0.1, 3.0)],
+    )
     return features
 
 
@@ -32,19 +47,21 @@ def _wav_bytes(samples):
 
 
 def test_build_baseline_profile_maps_features_to_schema_keys(valid_face):
-    t = np.arange(22050) / 22050
+    t = np.arange(22050 * 3) / 22050
     profile = build_baseline_profile("user-1", _wav_bytes(0.5 * np.sin(2 * np.pi * 220 * t)), b"face")
     assert profile.user_id == "user-1"
-    assert profile.feature_version == 1
-    assert profile.voice["durationSec"] == pytest.approx(1.0)
+    assert profile.feature_version == 2
+    assert profile.voice["durationSec"] == pytest.approx(3.0)
     assert 0 < profile.voice["voicedRatio"] <= 1
     assert profile.voice["f0Std"] >= 0
     assert profile.measured_at
     assert profile.voice.keys() >= {"pitchMean", "energyMean", "speechRate"}
     assert profile.voice["pitchMean"] == pytest.approx(220.0, rel=0.1)
     assert profile.voice["energyMean"] > 0
-    assert profile.face == {"eyeAspectRatio": 0.28, "mouthAspectRatio": 0.1,
-                            "mouthWidthRatio": 0.8, "eyebrowRaiseRatio": 0.3}
+    assert profile.face.items() >= {"eyeAspectRatio": 0.28, "mouthAspectRatio": 0.1,
+                                    "mouthWidthRatio": 0.8, "eyebrowRaiseRatio": 0.3}.items()
+    assert "au12LogMean" in profile.face
+    assert "windowPitchMean" in profile.voice
 
 
 @pytest.mark.parametrize("samples", [np.zeros(22050), np.array([])])
@@ -98,10 +115,10 @@ def test_handoff_fields_survive_firestore_save(monkeypatch, valid_voice, valid_f
     profile = build_baseline_profile("handoff-user", b"voice", b"face")
     baseline_repository.save_baseline_profile(profile)
     saved = client.collection("users").document("handoff-user").collection("meta").document("baseline").set_calls[0]
-    assert saved["featureVersion"] == 1
+    assert saved["featureVersion"] == 2
     assert saved["voice"]["f0Std"] == 1.0
     assert saved["voice"]["voicedRatio"] == 0.8
     assert saved["voice"]["durationSec"] == 1.0
-    assert profile.model_dump()["feature_version"] == 1
+    assert profile.model_dump()["feature_version"] == 2
     # Metadata must not become additional terms in the existing emotion score.
     assert set(compute_voice_delta(saved["voice"], valid_voice)) == {"pitchMean", "energyMean", "speechRate"}

@@ -1,6 +1,6 @@
-# Baseline feature contract v1
+# Baseline feature contract v2
 
-Firestore: `users/{uid}/meta/baseline`. New measurements store `featureVersion: 1`; the API returns `feature_version: 1`. Existing documents without a version are legacy (version 0), not automatically upgraded. Remeasure to obtain the extra values.
+Firestore: `users/{uid}/meta/baseline`. New measurements store `featureVersion: 2`; the API returns `feature_version: 2`. Documents without a version are version 0, and the previous six-voice/four-face contract is version 1. Versions 0 and 1 remain readable but must be measured again before Step2 because they lack the statistics required by multimodal fusion.
 
 | voice key | Meaning / unit |
 |---|---|
@@ -10,13 +10,44 @@ Firestore: `users/{uid}/meta/baseline`. New measurements store `featureVersion: 
 | voicedRatio | Fraction of frames pYIN marks voiced, 0–1. |
 | durationSec | Full recording duration in seconds, including silence. |
 | energyMean | Mean RMS amplitude; sensitive to microphone/gain/distance, not calibrated across sessions. |
+| windowPitchMean / windowPitchStd | Mean and population standard deviation of F0 among voiced three-second windows. |
+| windowEnergyMean / windowEnergyStd | Mean and population standard deviation of RMS among voiced windows. |
+| windowSpeechRate / windowSpeechRateStd | Mean and population standard deviation of estimated syllables/second among voiced windows. |
+| windowCount / windowUsedCount | All windows and voiced windows used for the statistics. |
 
-`measuredAt` is UTC ISO-8601. Existing face ratios still come from one image. No multi-frame median or frameCount is claimed. Median pitch, semitone reference and multi-frame face processing remain team discussion items.
+`measuredAt` is UTC ISO-8601. The face map keeps the existing four ratios and adds log-space mean/std fields for AU1, AU2, AU4, AU5, AU6, AU7, AU12, AU15, and AU17 (`au*LogMean`, `au*LogStd`), plus `auFrameCount` and `auTotalFrames`. The current baseline capture is one image, so AU standard deviations are normally zero and the modality service applies its documented floor.
 
-The three extra voice fields are saved and returned for downstream analysis. They do not automatically enter the existing Step2 fusion score. In particular recording length is quality/context metadata, not emotion intensity. Downstream weighting and normalization need separate agreement and validation.
+The full-recording fields remain for compatibility and quality checks. The window and AU statistics are the actual v2 z-score inputs. Silence windows are excluded so pauses do not look like emotion change. Recording length remains metadata rather than emotion intensity.
 
 ```json
-{"voice":{"pitchMean":219.9,"f0Std":28.4,"speechRate":4.2,"voicedRatio":0.61,"durationSec":352.0,"energyMean":0.031},"face":{"eyeAspectRatio":0.28,"mouthAspectRatio":0.11,"mouthWidthRatio":1.42,"eyebrowRaiseRatio":0.38},"measuredAt":"2026-09-22T00:00:00+00:00","featureVersion":1}
+{"voice":{"pitchMean":219.9,"f0Std":28.4,"speechRate":4.2,"voicedRatio":0.61,"durationSec":352.0,"energyMean":0.031,"windowPitchMean":218.0,"windowPitchStd":12.0,"windowEnergyMean":0.032,"windowEnergyStd":0.004,"windowSpeechRate":4.1,"windowSpeechRateStd":0.5,"windowCount":117,"windowUsedCount":94},"face":{"eyeAspectRatio":0.28,"mouthAspectRatio":0.11,"mouthWidthRatio":1.42,"eyebrowRaiseRatio":0.38,"au1LogMean":-2.0,"au1LogStd":0.0,"auFrameCount":1,"auTotalFrames":1},"measuredAt":"2026-09-22T00:00:00+00:00","featureVersion":2}
 ```
 
 Example values illustrate the schema, not a real user's measurement. Text has no baseline handoff field. Invalid/missing F0 standard deviation or out-of-range voiced ratio is rejected before overwriting a saved baseline.
+
+`POST /diary/step2/analyze` requires the same v2 contract in multipart fields:
+
+- `baseline_voice`: JSON object containing the full-recording and window fields above.
+- `baseline_face`: JSON object containing the four ratios and all AU mean/std/count fields.
+- `baseline_feature_version`: `2`.
+- `baseline_measured_at`: UTC ISO-8601 timestamp.
+
+Missing, legacy, non-finite, or out-of-range values return HTTP 422 with
+`detail.code = "baseline_remeasurement_required"`. The client should send the user back to baseline remeasurement instead of silently calculating with fewer deltas.
+
+The daily `voice_file` and `face_image` are validated before delta calculation.
+Unreadable audio, no measurable voiced signal, unreadable images, and captures
+without a detected face return HTTP 422 with `invalid_audio`,
+`voice_not_detected`, `invalid_face_image`, or `face_not_detected`. Each response
+includes a Korean `detail.message` that the client can show as a retry prompt.
+
+The Step2 response model also rejects non-finite values and enforces 0–100 for
+emotion scores/intensity and 0–1 for text-emotion probabilities. This prevents
+invalid calculations from crossing the API boundary into Firestore or counsel
+context.
+
+The Step2 response now also contains `signals`, `incongruent`,
+`incongruence_sources`, and `modalities`. These are the server-calculated values
+forwarded to counseling; the client does not reinterpret thresholds. Failure to
+load the AU model returns HTTP 503 `emotion_analysis_unavailable` rather than
+silently using a different formula.
