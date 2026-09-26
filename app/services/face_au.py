@@ -1,13 +1,23 @@
-"""MediaPipe FaceLandmarker blendshapes → 논문 표 1의 FACS AU 4종 (AU1·AU4·AU12·AU15).
+"""MediaPipe FaceLandmarker blendshapes → FACS AU 9종.
 
 face_features.py(FaceMesh 좌표로 만든 눈/입 비율)를 대체하기 위한 추출 레이어다.
-FaceLandmarker는 표정 점수 52개(blendshapes, 0~1)를 직접 주고, 그중 논문이 계측하는
-AU와 같은 움직임을 가리키는 항목이 있다:
+FaceLandmarker는 표정 점수 52개(blendshapes, 0~1)를 직접 주고, 그중 FACS AU와 같은
+움직임을 가리키는 항목이 있다. 논문 표 1의 AU1·4·12·15("등")에, 에크만 EMFACS의
+감정별 AU 조합에서 우리 6종에 필요한 것을 더했다:
 
-    AU1  눈썹 안쪽 올림  browInnerUp
-    AU4  눈썹 찡그림     browDownLeft/Right 평균
-    AU12 입꼬리 올림     mouthSmileLeft/Right 평균
-    AU15 입꼬리 내림     mouthFrownLeft/Right 평균
+    AU1  눈썹 안쪽 올림   browInnerUp                슬픔·불안·당황
+    AU2  눈썹 바깥 올림   browOuterUpLeft/Right      불안·당황
+    AU4  눈썹 찡그림      browDownLeft/Right         슬픔·분노·불안
+    AU5  위 눈꺼풀 올림   eyeWideLeft/Right          분노·불안·당황
+    AU6  볼 올림          cheekSquintLeft/Right      기쁨 (AU12와 함께 뒤셴 미소)
+    AU7  눈꺼풀 긴장      eyeSquintLeft/Right        분노
+    AU12 입꼬리 올림      mouthSmileLeft/Right       기쁨
+    AU15 입꼬리 내림      mouthFrownLeft/Right       슬픔
+    AU17 턱 올림          mouthShrugLower            슬픔
+
+일기는 말하면서 쓰므로 발음만으로 크게 움직이는 입 주변 AU(20 입술 당김, 23/24 입술
+누름, 26 입 벌림)는 넣지 않았다 — 말하는 영상으로 검증한 뒤 판단한다. 혐오(AU9)는 6종에
+없어 제외했다. 입 주변인 AU12·15·17도 발음 영향을 받으니 해석할 때 유의할 것.
 
 blendshape 점수는 정식 FACS 강도(0~5) 캘리브레이션이 아니라 같은 방향의 근사치다.
 또 사람마다 기본 얼굴이 달라 절대값을 그대로 쓰면 틀린다(공식 샘플의 웃는 얼굴에서도
@@ -39,15 +49,20 @@ MODEL_URL = (
 )
 MODEL_SHA256 = "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
 
-AU_KEYS = ("au1", "au4", "au12", "au15")
-
 # 좌우가 나뉜 항목은 평균낸다 — 한쪽만 움직이는 표정보다 얼굴 전체의 방향을 본다.
 _AU_BLENDSHAPES: dict[str, tuple[str, ...]] = {
     "au1": ("browInnerUp",),
+    "au2": ("browOuterUpLeft", "browOuterUpRight"),
     "au4": ("browDownLeft", "browDownRight"),
+    "au5": ("eyeWideLeft", "eyeWideRight"),
+    "au6": ("cheekSquintLeft", "cheekSquintRight"),
+    "au7": ("eyeSquintLeft", "eyeSquintRight"),
     "au12": ("mouthSmileLeft", "mouthSmileRight"),
     "au15": ("mouthFrownLeft", "mouthFrownRight"),
+    "au17": ("mouthShrugLower",),
 }
+
+AU_KEYS = tuple(_AU_BLENDSHAPES)
 
 
 class FaceAuUnavailable(RuntimeError):
