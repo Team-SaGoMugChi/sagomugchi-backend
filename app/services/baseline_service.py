@@ -1,5 +1,6 @@
 """Validate baseline inputs before they can replace a saved reference."""
 
+import logging
 from datetime import datetime, timezone
 from math import isfinite
 
@@ -14,6 +15,8 @@ from app.services.multimodal_contract import face_summary_to_map, voice_summary_
 from app.services.modality_emotion import face_log_summary
 from app.services.voice_features import extract_voice_features
 from app.services.voice_windows import VOICE_WINDOW_KEYS, analyze_windows, summarize_windows
+
+logger = logging.getLogger(__name__)
 
 
 class BaselineMeasurementError(ValueError):
@@ -96,6 +99,7 @@ def build_baseline_profile(user_id: str, voice_bytes: bytes, face_image_bytes: b
     try:
         face_au = get_face_au_extractor().extract(face_image_bytes)
     except FaceAuUnavailable as exc:
+        logger.exception("Face AU extraction failed")
         raise BaselineMeasurementError(
             "face_analysis_unavailable", "표정 분석기를 준비하지 못했어요. 잠시 후 다시 측정해주세요."
         ) from exc

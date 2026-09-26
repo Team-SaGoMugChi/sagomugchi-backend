@@ -51,3 +51,7 @@ The Step2 response now also contains `signals`, `incongruent`,
 forwarded to counseling; the client does not reinterpret thresholds. Failure to
 load the AU model returns HTTP 503 `emotion_analysis_unavailable` rather than
 silently using a different formula.
+# 2026-09-27 Windows 실기기 검증
+
+- MediaPipe 0.10.14가 Windows 절대 경로 앞에 패키지 경로를 덧붙여 FaceLandmarker 모델을 열지 못하는 문제를 확인했다. 검증된 모델 파일을 `model_asset_buffer`로 전달하도록 수정해 운영체제 경로 해석을 제거했다.
+- 보존된 실측 음성·얼굴 파일로 재시도해 음성 구간 분석, 얼굴 AU 분석, Firestore 저장을 거쳐 `POST /baseline` 200 응답을 확인했다. 앱 완료 화면에서도 실제 측정 시각과 얼굴·음성 저장 완료를 확인했다. 개인 측정 원값과 사용자 ID는 문서에 기록하지 않는다.
