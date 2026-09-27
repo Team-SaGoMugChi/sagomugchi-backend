@@ -8,9 +8,11 @@ TODO(Phase 5): 팀이 논문의 정확한 결합 수식을 공유하면 _delta_m
 계산 위주로 교체. text_emotion.py의 모델 교체와 별개로 진행 가능.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.services.baseline_delta import FeatureDelta
+from app.services.modality_emotion import FaceEmotion, VoiceArousal
+from app.services.multimodal_fusion import fuse_multimodal
 from app.services.text_emotion import TextEmotionResult, get_text_emotion_classifier
 
 _RELATIVE_DELTA_CLAMP = 3.0  # relative_delta를 이 값으로 클리핑한 뒤 0~1로 정규화
@@ -25,6 +27,10 @@ class FusionResult:
     text_emotion: TextEmotionResult
     voice_delta: dict[str, FeatureDelta]
     face_delta: dict[str, FeatureDelta]
+    signals: list[str] = field(default_factory=list)
+    incongruent: bool = False
+    incongruence_sources: list[str] = field(default_factory=list)
+    modalities: list[str] = field(default_factory=lambda: ["text"])
 
 
 def _delta_magnitude(deltas: dict[str, FeatureDelta]) -> float:
@@ -44,8 +50,25 @@ def fuse_emotion(
     text: str,
     voice_delta: dict[str, FeatureDelta],
     face_delta: dict[str, FeatureDelta],
+    face: FaceEmotion | None = None,
+    voice: VoiceArousal | None = None,
 ) -> FusionResult:
     text_emotion = get_text_emotion_classifier().classify(text)
+
+    if face is not None or voice is not None:
+        fused = fuse_multimodal(text_emotion, face=face, voice=voice)
+        return FusionResult(
+            emotion_keywords=fused.emotion_keywords,
+            emotion_scores=fused.emotion_scores,
+            emotion_intensity=fused.emotion_intensity,
+            text_emotion=text_emotion,
+            voice_delta=voice_delta,
+            face_delta=face_delta,
+            signals=fused.signals,
+            incongruent=fused.incongruent,
+            incongruence_sources=fused.incongruence_sources,
+            modalities=fused.modalities,
+        )
 
     voice_arousal = _delta_magnitude(voice_delta)
     face_arousal = _delta_magnitude(face_delta)

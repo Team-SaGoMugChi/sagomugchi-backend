@@ -120,6 +120,7 @@ def _describe_emotions(emotions: dict[str, float]) -> str:
 
 def build_system_prompt(
     persona: dict | None = None,
+    psych_profile: dict | None = None,
     emotions: dict[str, float] | None = None,
     incongruent: bool = False,
     signals: list[str] | None = None,
@@ -129,6 +130,7 @@ def build_system_prompt(
     """상담 한 턴에 쓸 시스템 프롬프트를 만든다.
 
     [persona]       `users/{uid}/meta/persona` (이름·말투·성격).
+    [psych_profile] 검증된 심리검사 결과. 현재 IPIP Big Five 점수.
     [emotions]      Step2 분석의 감정 라벨별 점수(0~100).
     [incongruent]   말과 표정·음성이 어긋난다고 분석된 경우.
     [signals]       baseline 대비 변화를 사람이 읽을 문장으로 바꾼 것.
@@ -147,6 +149,20 @@ def build_system_prompt(
             + (f" 말투는 {tone} 쪽에 가깝다." if tone else "")
             + (f" 성격은 {traits}." if traits else "")
             + " 말투와 성격은 표현 방식만 바꾼다. 위의 상담 절차와 금지사항은 그대로 지킨다."
+        )
+
+    big5 = psych_profile.get("big5") if psych_profile else None
+    if big5:
+        instrument = psych_profile.get("big5_instrument") or "IPIP Big Five"
+        scores = ", ".join(
+            f"{key}={big5[key]:g}" for key in ("O", "C", "E", "A", "N")
+        )
+        parts.append(
+            f"[심리검사 참고 정보]\n{instrument}의 응답 범위 환산 점수: {scores}.\n"
+            "이 점수는 인구집단 백분위나 진단 결과가 아니다. 사용자의 대화 방식에 "
+            "맞출 때 보조 정보로만 사용한다. 점수·유형·성격을 사용자에게 단정해서 "
+            "말하지 않고, 사용자가 지금 하는 말과 선택을 항상 우선한다. 검사 결과만으로 "
+            "감정·행동·정신건강 상태를 추측하지 않는다."
         )
 
     context: list[str] = []

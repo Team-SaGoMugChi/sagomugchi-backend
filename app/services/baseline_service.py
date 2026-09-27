@@ -1,5 +1,6 @@
 """Validate baseline inputs before they can replace a saved reference."""
 
+import logging
 from datetime import datetime, timezone
 from math import isfinite
 
@@ -7,9 +8,15 @@ import cv2
 import soundfile as sf
 
 from app.models.baseline import BaselineProfile
+from app.services.face_au import FaceAuUnavailable, get_face_au_extractor
 from app.services.face_features import extract_face_features
 from app.services.feature_maps import face_features_to_map, voice_features_to_map
+from app.services.multimodal_contract import face_summary_to_map, voice_summary_to_map
+from app.services.modality_emotion import face_log_summary
 from app.services.voice_features import extract_voice_features
+from app.services.voice_windows import VOICE_WINDOW_KEYS, analyze_windows, summarize_windows
+
+logger = logging.getLogger(__name__)
 
 
 class BaselineMeasurementError(ValueError):
@@ -60,6 +67,23 @@ def build_baseline_profile(user_id: str, voice_bytes: bytes, face_image_bytes: b
         )
 
     try:
+        voice_summary = summarize_windows(analyze_windows(voice_bytes))
+    except (sf.LibsndfileError, ValueError, EOFError) as exc:
+        raise BaselineMeasurementError(
+            "invalid_audio", "음성 파일을 읽을 수 없어요. 다시 녹음해주세요."
+        ) from exc
+    if (
+        voice_summary.used_count <= 0
+        or set(voice_summary.mean) != set(VOICE_WINDOW_KEYS)
+        or set(voice_summary.std) != set(VOICE_WINDOW_KEYS)
+        or any(not isfinite(value) for value in (*voice_summary.mean.values(), *voice_summary.std.values()))
+    ):
+        raise BaselineMeasurementError(
+            "voice_not_detected", "목소리를 충분히 확인하지 못했어요. 마이크를 확인하고 다시 말해주세요."
+        )
+    voice.update(voice_summary_to_map(voice_summary))
+
+    try:
         face_features = extract_face_features(face_image_bytes)
     except (cv2.error, ValueError) as exc:
         raise BaselineMeasurementError(
@@ -72,7 +96,21 @@ def build_baseline_profile(user_id: str, voice_bytes: bytes, face_image_bytes: b
             "face_not_detected", "얼굴을 확인하지 못했어요. 밝은 곳에서 얼굴을 화면 중앙에 맞춰 다시 측정해주세요."
         )
 
+    try:
+        face_au = get_face_au_extractor().extract(face_image_bytes)
+    except FaceAuUnavailable as exc:
+        logger.exception("Face AU extraction failed")
+        raise BaselineMeasurementError(
+            "face_analysis_unavailable", "표정 분석기를 준비하지 못했어요. 잠시 후 다시 측정해주세요."
+        ) from exc
+    if not face_au.detected:
+        raise BaselineMeasurementError(
+            "face_not_detected", "얼굴을 확인하지 못했어요. 밝은 곳에서 얼굴을 화면 중앙에 맞춰 다시 측정해주세요."
+        )
+    face.update(face_summary_to_map(face_log_summary([face_au])))
+
     return BaselineProfile(
+        feature_version=2,
         user_id=user_id,
         voice=voice,
         face=face,

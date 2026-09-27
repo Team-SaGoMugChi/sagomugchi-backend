@@ -154,8 +154,12 @@ class FaceAuExtractor:
             try:
                 from mediapipe.tasks.python import BaseOptions, vision
 
+                # MediaPipe 0.10.14 on Windows treats an absolute drive path as
+                # relative and prefixes its package directory. Supplying the
+                # verified model bytes avoids that platform-specific path join.
+                model_bytes = ensure_model(self.model_path).read_bytes()
                 options = vision.FaceLandmarkerOptions(
-                    base_options=BaseOptions(model_asset_path=str(ensure_model(self.model_path))),
+                    base_options=BaseOptions(model_asset_buffer=model_bytes),
                     running_mode=vision.RunningMode.IMAGE,
                     num_faces=1,
                     output_face_blendshapes=True,

@@ -56,6 +56,6 @@ def test_save_baseline_profile_writes_expected_path_and_fields(monkeypatch):
             "voice": profile.voice,
             "face": profile.face,
             "measuredAt": profile.measured_at,
-            "featureVersion": 1,
+                "featureVersion": 2,
         }
     ]

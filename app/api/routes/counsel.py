@@ -31,7 +31,8 @@ async def counsel_turn(payload: CounselTurnRequest) -> CounselTurnResponse:
     if is_crisis(payload.user_text):
         return CounselTurnResponse(reply=CRISIS_REPLY, crisis=True)
 
-    # baseline·감정 분석·일기 요약. 아직 안 넘어오는 값은 더미로 채워진다.
+    # baseline·감정 분석·일기 요약. 로컬에서 더미 옵션을 명시적으로 켠
+    # 경우에만 누락된 값을 예시 데이터로 채운다.
     context = counsel_context.resolve(
         emotions=payload.emotions,
         signals=payload.signals,
@@ -41,7 +42,10 @@ async def counsel_turn(payload: CounselTurnRequest) -> CounselTurnResponse:
     )
 
     system_prompt = build_system_prompt(
-        persona=payload.persona,
+        persona=payload.persona.model_dump() if payload.persona else None,
+        psych_profile=(
+            payload.psych_profile.model_dump() if payload.psych_profile else None
+        ),
         emotions=context.emotions,
         incongruent=context.incongruent,
         signals=context.signals,
