@@ -1,4 +1,60 @@
-from pydantic import BaseModel, Field
+import math
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+class PersonaProfile(BaseModel):
+    name: str = Field(..., min_length=1, max_length=10)
+    tone: str = Field(..., min_length=1, max_length=30)
+    traits: list[str] = Field(default_factory=list, max_length=6)
+
+    @field_validator("name", "tone")
+    @classmethod
+    def validate_single_line_text(cls, value: str):
+        value = value.strip()
+        if not value or "\n" in value or "\r" in value:
+            raise ValueError("persona text must be non-empty and single-line")
+        return value
+
+    @field_validator("traits")
+    @classmethod
+    def validate_traits(cls, value: list[str]):
+        cleaned = [trait.strip() for trait in value]
+        if any(
+            not trait or len(trait) > 20 or "\n" in trait or "\r" in trait
+            for trait in cleaned
+        ):
+            raise ValueError("persona traits must be non-empty single-line text")
+        if len(set(cleaned)) != len(cleaned):
+            raise ValueError("persona traits must not contain duplicates")
+        return cleaned
+
+
+class PsychProfile(BaseModel):
+    big5: dict[str, float] | None = Field(
+        None, description="IPIP Big Five O/C/E/A/N 점수(0~100)"
+    )
+    big5_instrument: str | None = Field(None, description="검사 도구와 버전")
+
+    @field_validator("big5")
+    @classmethod
+    def validate_big5(cls, value: dict[str, float] | None):
+        if value is None:
+            return value
+        if set(value) != {"O", "C", "E", "A", "N"}:
+            raise ValueError("big5 must contain exactly O, C, E, A, and N")
+        if any(
+            not math.isfinite(score) or score < 0 or score > 100
+            for score in value.values()
+        ):
+            raise ValueError("big5 scores must be finite values from 0 to 100")
+        return value
+
+    @model_validator(mode="after")
+    def require_instrument_for_big5(self):
+        if self.big5 is not None and not (self.big5_instrument or "").strip():
+            raise ValueError("big5_instrument is required when big5 is provided")
+        return self
 
 
 class CounselMessage(BaseModel):
@@ -12,7 +68,10 @@ class CounselTurnRequest(BaseModel):
     emotions: dict[str, float] | None = Field(
         None, description="Step2 fusion의 감정 라벨별 점수(0~100)"
     )
-    persona: dict | None = Field(None, description="meta/persona 문서")
+    persona: PersonaProfile | None = Field(None, description="meta/persona 문서")
+    psych_profile: PsychProfile | None = Field(
+        None, description="meta/psych에서 검증된 심리검사 결과"
+    )
 
     # 상담봇이 사용자의 상태를 알고 대화를 시작하기 위한 맥락.
     # 아직 앱에서 넘어오지 않으면 서버가 더미로 채운다(counsel_context.py).

@@ -42,7 +42,10 @@ async def counsel_turn(payload: CounselTurnRequest) -> CounselTurnResponse:
     )
 
     system_prompt = build_system_prompt(
-        persona=payload.persona,
+        persona=payload.persona.model_dump() if payload.persona else None,
+        psych_profile=(
+            payload.psych_profile.model_dump() if payload.psych_profile else None
+        ),
         emotions=context.emotions,
         incongruent=context.incongruent,
         signals=context.signals,
