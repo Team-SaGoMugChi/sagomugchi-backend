@@ -55,7 +55,9 @@ class Settings(BaseSettings):
     # LLM_API_KEY를 쓴다. 이미지·영상·TTS는 어느 쪽이든 Vertex를 쓴다.
     llm_provider: Literal["gemini", "openai"] = "gemini"
     openai_api_key: str = Field(default="", validation_alias="LLM_API_KEY")
-    openai_model: str = "gpt-4o-mini"
+    # gpt-4o-mini는 "영어로 작성"·글자 수 상한을 자주 어겨 3회 안에 통과하지 못했다.
+    # gpt-5.5는 가장 적은 재요청으로 통과하고 관찰자 시점 연출도 가장 잘 지켰다(2026-09 비교).
+    openai_model: str = "gpt-5.5"
 
     # --- 모델 문자열 -------------------------------------------------------
     # 자주 바뀐다. 하드코딩하지 않고 `videomake doctor`로 실제 목록과 대조한다.

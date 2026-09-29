@@ -24,6 +24,12 @@ class OpenAILLMProvider:
         self._client = client
         self._model = model
 
+    def _sampling(self) -> dict:
+        # 추론 모델(gpt-5 계열, o 시리즈)은 temperature를 받지 않는다(넣으면 400).
+        if self._model.startswith(("gpt-5", "o1", "o3", "o4")):
+            return {}
+        return {"temperature": 0.9}  # Gemini 구현과 같은 값
+
     async def complete_json(
         self, *, system: str, user: str, schema: type[T]
     ) -> tuple[T, LLMResult]:
@@ -37,7 +43,7 @@ class OpenAILLMProvider:
                         {"role": "user", "content": user},
                     ],
                     response_format=schema,
-                    temperature=0.9,  # Gemini 구현과 같은 값
+                    **self._sampling(),
                 ),
                 what=f"LLM({self._model})",
             )

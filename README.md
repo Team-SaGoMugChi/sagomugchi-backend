@@ -166,7 +166,7 @@ curl http://localhost:8000/video/jobs/<job_id>
 
 **스토리보드를 GPT로 (선택):** `.env`에 `VIDEOMAKE_LLM_PROVIDER=openai`. 상담 기능과 같은 팀 공용
 `LLM_API_KEY`로 시나리오(스토리보드)만 GPT가 짠다. 모델은 `VIDEOMAKE_OPENAI_MODEL`(기본
-`gpt-4o-mini`). 이미지·영상·나레이션은 그대로 Vertex를 쓰므로 실제 생성에는 GCP 설정이 여전히
+`gpt-5.5` — gpt-4o-mini는 연출 규칙을 자주 어겨 재요청 3회 안에 통과하지 못했다). 이미지·영상·나레이션은 그대로 Vertex를 쓰므로 실제 생성에는 GCP 설정이 여전히
 필요하다. 기본값은 `gemini`.
 
 **더미 모드 (GCP 없이):** `.env`에 `VIDEOMAKE_DUMMY=true`. 모델을 부르지 않고 ffmpeg로

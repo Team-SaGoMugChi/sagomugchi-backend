@@ -113,3 +113,25 @@ def test_gpt_storyboard_passes_guardrails(tmp_path):
     assert len(sb.cuts) == 2
     assert pipe.job.storyboard_path.exists()
     assert "오늘 회의에서 있었던 일" in completions.calls[0]["messages"][1]["content"]
+
+
+def test_reasoning_models_get_no_temperature():
+    """gpt-5 계열은 temperature를 받지 않는다(넣으면 400)."""
+    completions = _Completions(parsed=_draft())
+    asyncio.run(
+        OpenAILLMProvider(_client(completions), "gpt-5.5").complete_json(
+            system="s", user="u", schema=_StoryboardDraft
+        )
+    )
+    asyncio.run(
+        OpenAILLMProvider(_client(completions), "gpt-4o").complete_json(
+            system="s", user="u", schema=_StoryboardDraft
+        )
+    )
+    assert "temperature" not in completions.calls[0]
+    assert completions.calls[1]["temperature"] == 0.9
+
+
+def test_default_openai_model_is_gpt_5_5(monkeypatch):
+    monkeypatch.delenv("VIDEOMAKE_OPENAI_MODEL", raising=False)
+    assert _settings().openai_model == "gpt-5.5"
