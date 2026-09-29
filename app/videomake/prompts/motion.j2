@@ -1,0 +1,25 @@
+{{ motion_prompt }}
+
+The camera stays a detached third-person observer at a constant distance.
+Any camera movement is very slow and minimal.
+{% if dialogue %}
+There are exactly {{ dialogue | map(attribute='speaker') | unique | list | length }} different speaking voices in this scene. Each voice is distinct.
+{% for line in dialogue %}
+{% if loop.first %}FIRST{% else %}THEN{% endif %}, {{ line.speaker }} speaks{% if line.voice %}. Their voice is {{ line.voice }}{% endif %}.
+Their lips move naturally in sync as they say in Korean: "{{ line.text }}"
+While {{ line.speaker }} speaks, everyone else stays silent with their mouth closed.
+{% endfor %}
+These are the ONLY words spoken in this shot. Nobody says anything else.
+After the last line, everyone closes their mouth and stays completely silent
+for the remainder of the shot. Do not invent additional dialogue or chatter
+to fill the silence.
+Emotion stays restrained throughout. No shouting.
+
+Audio: only the Korean lines quoted above, quiet ambient room tone underneath.
+No music. No narrator. No background conversation.
+{% else %}
+The character does not speak and their lips do not move.
+Emotion stays restrained throughout.
+
+Audio: quiet ambient room tone only. No speech, no dialogue, no music.
+{% endif %}
