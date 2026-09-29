@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     )
     video_location: str = "us-central1"
 
+    # 스토리보드 LLM만 OpenAI(GPT)로 바꿀 수 있다. 키는 상담 기능과 같은 팀 공용
+    # LLM_API_KEY를 쓴다. 이미지·영상·TTS는 어느 쪽이든 Vertex를 쓴다.
+    llm_provider: Literal["gemini", "openai"] = "gemini"
+    openai_api_key: str = Field(default="", validation_alias="LLM_API_KEY")
+    openai_model: str = "gpt-4o-mini"
+
     # --- 모델 문자열 -------------------------------------------------------
     # 자주 바뀐다. 하드코딩하지 않고 `videomake doctor`로 실제 목록과 대조한다.
     llm_model: str = "gemini-3.8-flash"
