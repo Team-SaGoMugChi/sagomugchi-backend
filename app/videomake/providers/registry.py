@@ -65,8 +65,8 @@ def build_llm(settings: Settings, client: genai.Client) -> LLMProvider:
     if settings.llm_provider == "openai":
         if not settings.openai_api_key:
             raise ConfigError(
-                "VIDEOMAKE_LLM_PROVIDER=openai인데 LLM_API_KEY가 없다. "
-                ".env에 팀 공용 OpenAI 키를 넣을 것."
+                "VIDEOMAKE_LLM_PROVIDER=openai인데 VIDEOMAKE_OPENAI_API_KEY가 없다. "
+                ".env에 영상용 OpenAI 키를 넣을 것(상담용 LLM_API_KEY와 별개)."
             )
         return OpenAILLMProvider(
             AsyncOpenAI(api_key=settings.openai_api_key), settings.openai_model
