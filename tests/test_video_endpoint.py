@@ -29,6 +29,7 @@ BODY = {
 
 def _manager(tmp_path, **overrides) -> VideoJobManager:
     settings = Settings(
+        _env_file=None,
         dummy=True,
         jobs_dir=tmp_path / "jobs",
         n_cuts=2,
