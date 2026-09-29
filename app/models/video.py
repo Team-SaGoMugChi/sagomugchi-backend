@@ -1,0 +1,40 @@
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator
+
+
+class VideoJobRequest(BaseModel):
+    """Step3 영상 생성 요청. 감정 필드는 `/diary/step2/analyze` 응답을 그대로 넘긴다."""
+
+    text: str = Field(..., min_length=1, max_length=5000, description="일기 원문(Step2 확인본)")
+    emotion_keywords: list[str] = Field(default_factory=list, description="Step2 emotion_keywords")
+    emotion_scores: dict[str, float] = Field(
+        default_factory=dict, description="Step2 emotion_scores (0~100)"
+    )
+    emotion_intensity: int | None = Field(None, ge=0, le=100, description="Step2 emotion_intensity")
+    protagonist_name: str | None = Field(
+        None, max_length=10, description="영상 속 인물 이름. 없으면 LLM이 짓는다"
+    )
+
+    @field_validator("text")
+    @classmethod
+    def validate_text(cls, value: str):
+        value = value.strip()
+        if not value:
+            raise ValueError("text must not be blank")
+        return value
+
+
+VideoJobState = Literal["running", "done", "failed"]
+VideoStage = Literal["storyboard", "images", "videos", "narration", "compose", "done"]
+
+
+class VideoJobStatus(BaseModel):
+    job_id: str
+    status: VideoJobState
+    stage: VideoStage = Field(..., description="지금 진행 중인(또는 마지막) 단계")
+    progress: float = Field(..., ge=0, le=1, description="0~1 — 앱 로딩 화면 진행률")
+    error: str | None = Field(None, description="status=failed일 때 사용자에게 보여줄 메시지")
+    video_url: str | None = Field(
+        None, description="status=done일 때 mp4 경로(서버 기준 상대 경로)"
+    )

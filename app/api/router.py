@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes import baseline, counsel, face, health, step2, stt, text_emotion, voice
+from app.api.routes import baseline, counsel, face, health, step2, stt, text_emotion, video, voice
 
 api_router = APIRouter()
 api_router.include_router(health.router)
@@ -12,3 +12,4 @@ api_router.include_router(counsel.router)
 api_router.include_router(stt.router)
 
 api_router.include_router(text_emotion.router)
+api_router.include_router(video.router)
