@@ -70,6 +70,12 @@ class VideoJobManager:
     async def run(self, job_id: str, req: VideoJobRequest) -> None:
         """백그라운드 태스크 본체. 예외를 밖으로 던지지 않고 상태에 남긴다."""
         state = self._jobs[job_id]
+        if not self.settings.dummy:
+            log.warning(
+                "영상 작업 %s: 실제 생성 모드(VIDEOMAKE_DUMMY=false) — 과금된다 (상한 $%s)",
+                job_id,
+                self.settings.max_cost_usd,
+            )
         try:
             pipe = Pipeline(
                 providers=build_providers(self.settings),
