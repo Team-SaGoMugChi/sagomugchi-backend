@@ -84,9 +84,10 @@ class Settings(BaseSettings):
     max_cost_usd: Decimal = Decimal("6.00")
 
     # --- 실행 ---------------------------------------------------------------
-    # true면 Gemini/Veo 대신 ffmpeg로 만든 더미 산출물을 쓴다(providers/fake.py).
-    # GCP 인증 없이 앱 Step3 흐름을 확인할 때 켠다. 과금 0.
-    dummy: bool = False
+    # true면 Gemini/Veo 대신 ffmpeg로 만든 더미 산출물을 쓴다(providers/fake.py). 과금 0.
+    # 기본값이 true다. 실제 생성(작업당 약 $5)은 VIDEOMAKE_DUMMY=false를 명시했을 때만
+    # 돈다 — .env에서 이 줄이 빠지거나 오래된 .env를 써도 과금되지 않게 하기 위함.
+    dummy: bool = True
     # 생성물(이미지·영상)은 커밋하지 않는다. .cache/는 이미 .gitignore에 있다.
     jobs_dir: Path = Path(".cache/videomake/jobs")
     poll_interval_seconds: float = 10.0

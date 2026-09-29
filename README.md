@@ -65,7 +65,7 @@ server/
 | POST | `/analyze/face` | 이미지 → 랜드마크 검출 (MediaPipe) | 랜드마크 검출만 실동작, AU/표정 분류는 TODO |
 | POST | `/baseline` | 음성+얼굴 → baseline 프로필 → `users/{uid}/meta/baseline` 저장 | 특징 추출 + Firestore 쓰기 실동작 (서비스 계정 키 필요) |
 | POST | `/diary/step2/analyze` | 음성+얼굴+텍스트 → baseline 대비 Δ + fusion → 감정 키워드/점수 | 계산 실동작, **Firestore 저장은 미연결**(아래 참고) |
-| POST | `/video/jobs` | 일기 원문 + Step2 감정 → Step3 숏폼 생성 작업 등록 (202, `job_id`) | 실동작 (Vertex ADC 필요, 더미 모드 있음) |
+| POST | `/video/jobs` | 일기 원문 + Step2 감정 → Step3 숏폼 생성 작업 등록 (202, `job_id`) | 실동작 (기본 더미 모드, 실제 생성은 Vertex ADC 필요) |
 | GET | `/video/jobs/{job_id}` | 영상 작업 단계·진행률·오류 조회 | 실동작 |
 | GET | `/video/jobs/{job_id}/file` | 완성된 mp4 다운로드 | 실동작 (Storage 업로드는 후속) |
 
@@ -163,6 +163,9 @@ curl http://localhost:8000/video/jobs/<job_id>
 1. `ffmpeg` 설치 (`brew install ffmpeg` / Windows는 `winget install ffmpeg`)
 2. `gcloud auth application-default login` — 조직 정책상 API 키가 아니라 ADC로 인증한다
 3. `.env`에 `GOOGLE_CLOUD_PROJECT=<결제가 연결된 GCP 프로젝트>` 추가
+4. `.env`에 `VIDEOMAKE_DUMMY=false` — **기본값은 더미 모드**라서 이 줄을 명시해야만 실제
+   생성(과금)이 돈다. 이 줄이 없거나 `true`면 과금 0인 더미로 돈다. 실제 모드로 작업이
+   시작되면 서버 로그에 경고가 남는다.
 
 **스토리보드를 GPT로 (선택):** `.env`에 `VIDEOMAKE_LLM_PROVIDER=openai`. 상담 기능과 같은 팀 공용
 `LLM_API_KEY`로 시나리오(스토리보드)만 GPT가 짠다. 모델은 `VIDEOMAKE_OPENAI_MODEL`(기본

@@ -10,6 +10,7 @@ import subprocess
 import pytest
 
 from app.videomake.config import Settings
+from app.videomake.errors import ConfigError
 from app.videomake.job import JobStore
 from app.videomake.models import DiaryInput
 from app.videomake.pipeline import Pipeline
@@ -75,3 +76,18 @@ def test_dummy_pipeline_produces_final_mp4(tmp_path, n_cuts):
 
     assert final.exists()
     assert abs(_duration(final) - 4 * n_cuts) < 0.5
+
+
+def test_default_is_dummy_mode(monkeypatch):
+    """VIDEOMAKE_DUMMY를 안 적으면 연습 모드다. 줄이 빠져도 과금되지 않는다."""
+    monkeypatch.delenv("VIDEOMAKE_DUMMY", raising=False)
+    settings = Settings(_env_file=None)
+    assert settings.dummy is True
+    assert build_providers(settings).client is None
+
+
+def test_real_mode_only_when_explicitly_false(monkeypatch):
+    """false를 명시해야 실제 provider를 조립한다(GCP 프로젝트가 없으면 여기서 멈춘다)."""
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    with pytest.raises(ConfigError, match="GOOGLE_CLOUD_PROJECT"):
+        build_providers(Settings(_env_file=None, dummy=False))
