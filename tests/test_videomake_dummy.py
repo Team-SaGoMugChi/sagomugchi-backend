@@ -30,7 +30,9 @@ def no_delay(monkeypatch):
 
 
 def _settings(tmp_path, n_cuts: int) -> Settings:
+    # 로컬 .env(GCP 프로젝트 등)에 결과가 흔들리지 않게 한다.
     return Settings(
+        _env_file=None,
         dummy=True,
         jobs_dir=tmp_path / "jobs",
         n_cuts=n_cuts,

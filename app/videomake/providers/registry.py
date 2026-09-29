@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from google import genai
+from openai import AsyncOpenAI
 
 from ..config import Settings
 from ..errors import ConfigError
@@ -16,6 +17,7 @@ from .fake import FakeImage, FakeLLM, FakeTTS, FakeVideo
 from .gemini_image import GeminiImageProvider
 from .gemini_llm import GeminiLLMProvider
 from .gemini_tts import GeminiTTSProvider
+from .openai_llm import OpenAILLMProvider
 from .veo_video import VeoVideoProvider
 
 
@@ -49,13 +51,27 @@ def build_providers(settings: Settings) -> Providers:
         location=settings.video_location,
     )
     return Providers(
-        llm=GeminiLLMProvider(client, settings.llm_model),
+        llm=build_llm(settings, client),
         image=GeminiImageProvider(client, settings.image_model),
         video=VeoVideoProvider(video_client, settings.video_model),
         tts=GeminiTTSProvider(client, settings.tts_model),
         client=client,
         video_client=video_client,
     )
+
+
+def build_llm(settings: Settings, client: genai.Client) -> LLMProvider:
+    """스토리보드 LLM. VIDEOMAKE_LLM_PROVIDER로 Gemini/GPT를 고른다."""
+    if settings.llm_provider == "openai":
+        if not settings.openai_api_key:
+            raise ConfigError(
+                "VIDEOMAKE_LLM_PROVIDER=openai인데 LLM_API_KEY가 없다. "
+                ".env에 팀 공용 OpenAI 키를 넣을 것."
+            )
+        return OpenAILLMProvider(
+            AsyncOpenAI(api_key=settings.openai_api_key), settings.openai_model
+        )
+    return GeminiLLMProvider(client, settings.llm_model)
 
 
 def build_fake_providers(settings: Settings) -> Providers:
