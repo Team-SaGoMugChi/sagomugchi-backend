@@ -65,6 +65,9 @@ server/
 | POST | `/analyze/face` | 이미지 → 랜드마크 검출 (MediaPipe) | 랜드마크 검출만 실동작, AU/표정 분류는 TODO |
 | POST | `/baseline` | 음성+얼굴 → baseline 프로필 → `users/{uid}/meta/baseline` 저장 | 특징 추출 + Firestore 쓰기 실동작 (서비스 계정 키 필요) |
 | POST | `/diary/step2/analyze` | 음성+얼굴+텍스트 → baseline 대비 Δ + fusion → 감정 키워드/점수 | 계산 실동작, **Firestore 저장은 미연결**(아래 참고) |
+| POST | `/video/jobs` | 일기 원문 + Step2 감정 → Step3 숏폼 생성 작업 등록 (202, `job_id`) | 실동작 (Vertex ADC 필요, 더미 모드 있음) |
+| GET | `/video/jobs/{job_id}` | 영상 작업 단계·진행률·오류 조회 | 실동작 |
+| GET | `/video/jobs/{job_id}/file` | 완성된 mp4 다운로드 | 실동작 (Storage 업로드는 후속) |
 
 각 서비스 파일(`app/services/*.py`)의 `TODO(Phase 4)` 주석이 이어서 구현할 지점.
 
@@ -130,6 +133,40 @@ curl -X POST http://localhost:8000/diary/step2/analyze \
 이 검사는 측정 가능한 신호의 존재 여부만 확인합니다. 사람의 실제 발화 여부, 녹음 품질의
 정확도, 감정 상태를 검증하지 않으며, 발화 속도는 DSP 근사치이고 얼굴 값은 랜드마크 비율입니다.
 실기기의 마이크·카메라와 Firestore 서비스 계정으로 끝까지 저장되는지는 별도 확인이 필요합니다.
+
+## 영상 생성 (`/video/jobs`, Step3)
+
+`app/videomake/`는 영상 생성 모듈(videomake)을 이식한 것이다. 일기 + 감정 →
+스토리보드(Gemini) → 캐릭터 시트·컷 이미지 → 영상(Veo 3.1 Fast) → 나레이션(TTS) →
+ffmpeg 합성 → `final.mp4`. 연출 원칙(3인칭 관찰 시점, 클로즈업 금지 등)과 비용 가드는
+모듈 안 코드가 강제한다.
+
+생성에 수 분이 걸리므로 앱은 작업을 등록한 뒤 상태를 폴링한다.
+
+```bash
+curl -X POST http://localhost:8000/video/jobs -H 'Content-Type: application/json' \
+  -d '{"text": "오늘 회의에서...", "emotion_keywords": ["슬픔"], "emotion_intensity": 58}'
+# → {"job_id": "…", "status": "running", "stage": "storyboard", "progress": 0.0, …}
+
+curl http://localhost:8000/video/jobs/<job_id>
+# → status: running | done | failed, stage, progress(0~1), error, video_url
+```
+
+- **승인 게이트는 서버가 자동 통과**시킨다(앱 사용자는 컷을 검수하지 않음). 대신
+  `VIDEOMAKE_MAX_COST_USD`(기본 $6)를 넘는 작업은 렌더하지 않고 `failed`가 된다.
+  기본 설정(6컷×8초, Veo Fast 720p)은 작업당 약 $5다.
+- 작업 상태는 메모리에만 있다. 서버를 재시작하면 진행 중이던 작업은 사라진다.
+- 생성물은 `.cache/videomake/jobs/<job_id>/`에 남는다(커밋 안 됨).
+
+**실제 생성 (Vertex AI):**
+
+1. `ffmpeg` 설치 (`brew install ffmpeg` / Windows는 `winget install ffmpeg`)
+2. `gcloud auth application-default login` — 조직 정책상 API 키가 아니라 ADC로 인증한다
+3. `.env`에 `GOOGLE_CLOUD_PROJECT=<결제가 연결된 GCP 프로젝트>` 추가
+
+**더미 모드 (GCP 없이):** `.env`에 `VIDEOMAKE_DUMMY=true`. 모델을 부르지 않고 ffmpeg로
+회색 이미지·단색 영상·무음 나레이션을 만들어 같은 흐름을 끝까지 돈다. 과금 0이고, 앱
+Step3 화면의 진행률·재생을 확인할 때 쓴다. `ffmpeg`는 필요하다.
 
 ## 텍스트 감정분류 (KOTE)
 
