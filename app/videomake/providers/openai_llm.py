@@ -1,6 +1,6 @@
 """LLMProvider의 OpenAI(GPT) 구현. 구조화 출력(response_format)으로 스키마를 강제한다.
 
-팀 공용 키(`LLM_API_KEY`, 상담 기능과 같은 키)를 쓴다. 스토리보드 단계만 대체하며
+영상 전용 키(`VIDEOMAKE_OPENAI_API_KEY`)를 쓴다 — 상담의 `LLM_API_KEY`와 별개. 스토리보드 단계만 대체하며
 이미지·영상·TTS는 여전히 Vertex를 쓴다.
 """
 

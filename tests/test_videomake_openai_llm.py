@@ -82,7 +82,7 @@ def test_api_failure_is_provider_error():
 def test_default_provider_is_openai(monkeypatch):
     """팀 표준은 GPT다. 설정 줄이 없어도 공용 키로 GPT가 시나리오를 짠다."""
     monkeypatch.delenv("VIDEOMAKE_LLM_PROVIDER", raising=False)
-    llm = build_llm(_settings(LLM_API_KEY="sk-test"), client=None)
+    llm = build_llm(_settings(openai_api_key="sk-test"), client=None)
     assert isinstance(llm, OpenAILLMProvider)
 
 
@@ -90,14 +90,14 @@ def test_gemini_is_still_selectable():
     assert isinstance(build_llm(_settings(llm_provider="gemini"), client=None), GeminiLLMProvider)
 
 
-def test_openai_provider_uses_shared_key():
-    settings = _settings(llm_provider="openai", LLM_API_KEY="sk-test", openai_model="gpt-x")
+def test_openai_provider_uses_video_key():
+    settings = _settings(llm_provider="openai", openai_api_key="sk-test", openai_model="gpt-x")
     llm = build_llm(settings, client=None)
     assert isinstance(llm, OpenAILLMProvider)
 
 
 def test_openai_provider_without_key_is_config_error():
-    with pytest.raises(ConfigError, match="LLM_API_KEY"):
+    with pytest.raises(ConfigError, match="VIDEOMAKE_OPENAI_API_KEY"):
         build_llm(_settings(llm_provider="openai"), client=None)
 
 
@@ -141,3 +141,13 @@ def test_reasoning_models_get_no_temperature():
 def test_default_openai_model_is_gpt_5_5(monkeypatch):
     monkeypatch.delenv("VIDEOMAKE_OPENAI_MODEL", raising=False)
     assert _settings().openai_model == "gpt-5.5"
+
+
+def test_counsel_key_is_not_used_for_video(monkeypatch):
+    """키는 용도별로 나눈다. 상담 키(LLM_API_KEY)만 있으면 영상은 GPT를 부르지 않는다."""
+    monkeypatch.setenv("LLM_API_KEY", "sk-counsel")
+    monkeypatch.delenv("VIDEOMAKE_OPENAI_API_KEY", raising=False)
+    settings = _settings(llm_provider="openai")
+    assert settings.openai_api_key == ""
+    with pytest.raises(ConfigError, match="VIDEOMAKE_OPENAI_API_KEY"):
+        build_llm(settings, client=None)
