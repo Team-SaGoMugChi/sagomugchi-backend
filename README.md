@@ -164,6 +164,11 @@ curl http://localhost:8000/video/jobs/<job_id>
 2. `gcloud auth application-default login` — 조직 정책상 API 키가 아니라 ADC로 인증한다
 3. `.env`에 `GOOGLE_CLOUD_PROJECT=<결제가 연결된 GCP 프로젝트>` 추가
 
+**스토리보드를 GPT로 (선택):** `.env`에 `VIDEOMAKE_LLM_PROVIDER=openai`. 상담 기능과 같은 팀 공용
+`LLM_API_KEY`로 시나리오(스토리보드)만 GPT가 짠다. 모델은 `VIDEOMAKE_OPENAI_MODEL`(기본
+`gpt-4o-mini`). 이미지·영상·나레이션은 그대로 Vertex를 쓰므로 실제 생성에는 GCP 설정이 여전히
+필요하다. 기본값은 `gemini`.
+
 **더미 모드 (GCP 없이):** `.env`에 `VIDEOMAKE_DUMMY=true`. 모델을 부르지 않고 ffmpeg로
 회색 이미지·단색 영상·무음 나레이션을 만들어 같은 흐름을 끝까지 돈다. 과금 0이고, 앱
 Step3 화면의 진행률·재생을 확인할 때 쓴다. `ffmpeg`는 필요하다.
