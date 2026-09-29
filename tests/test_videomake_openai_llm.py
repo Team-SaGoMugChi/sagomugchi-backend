@@ -79,9 +79,15 @@ def test_api_failure_is_provider_error():
         asyncio.run(llm.complete_json(system="s", user="u", schema=_StoryboardDraft))
 
 
-def test_default_provider_is_gemini(monkeypatch):
+def test_default_provider_is_openai(monkeypatch):
+    """팀 표준은 GPT다. 설정 줄이 없어도 공용 키로 GPT가 시나리오를 짠다."""
     monkeypatch.delenv("VIDEOMAKE_LLM_PROVIDER", raising=False)
-    assert isinstance(build_llm(_settings(), client=None), GeminiLLMProvider)
+    llm = build_llm(_settings(LLM_API_KEY="sk-test"), client=None)
+    assert isinstance(llm, OpenAILLMProvider)
+
+
+def test_gemini_is_still_selectable():
+    assert isinstance(build_llm(_settings(llm_provider="gemini"), client=None), GeminiLLMProvider)
 
 
 def test_openai_provider_uses_shared_key():

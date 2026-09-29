@@ -51,9 +51,9 @@ class Settings(BaseSettings):
     )
     video_location: str = "us-central1"
 
-    # 스토리보드 LLM만 OpenAI(GPT)로 바꿀 수 있다. 키는 상담 기능과 같은 팀 공용
-    # LLM_API_KEY를 쓴다. 이미지·영상·TTS는 어느 쪽이든 Vertex를 쓴다.
-    llm_provider: Literal["gemini", "openai"] = "gemini"
+    # 스토리보드 LLM. 팀 표준은 GPT(openai)이고 키는 상담 기능과 같은 팀 공용
+    # LLM_API_KEY를 쓴다. gemini로도 바꿀 수 있다. 이미지·영상·TTS는 어느 쪽이든 Vertex.
+    llm_provider: Literal["gemini", "openai"] = "openai"
     openai_api_key: str = Field(default="", validation_alias="LLM_API_KEY")
     # gpt-4o-mini는 "영어로 작성"·글자 수 상한을 자주 어겨 3회 안에 통과하지 못했다.
     # gpt-5.5는 가장 적은 재요청으로 통과하고 관찰자 시점 연출도 가장 잘 지켰다(2026-09 비교).
