@@ -41,11 +41,19 @@ log = logging.getLogger(__name__)
 MAX_ATTEMPTS = 3
 
 
-def _feedback(violations: list[str]) -> str:
+def _feedback(violations: list[str], previous_json: str) -> str:
+    """재요청 피드백. 직전 결과를 함께 준다.
+
+    위반 목록만 주면 LLM이 스토리보드를 처음부터 다시 써서, 지적된 곳은 고치지만
+    다른 곳에서 새 위반을 만든다(GPT에서 실제로 관측됨). 직전 결과를 주고 위반만
+    고치게 해야 수렴한다.
+    """
     return (
-        "\n\n## 직전 결과의 연출 원칙 위반\n\n"
+        "\n\n## 직전 결과\n\n"
+        + previous_json
+        + "\n\n## 직전 결과의 연출 원칙 위반\n\n"
         + "\n".join(f"- {v}" for v in violations)
-        + "\n\n위 항목을 모두 고쳐서 다시 작성해라."
+        + "\n\n직전 결과에서 위 항목만 고쳐라. 위반이 없는 부분은 그대로 둔다."
     )
 
 
@@ -74,22 +82,45 @@ class _StoryboardDraft(BaseModel):
     distortions: list[Distortion] = Field(default_factory=list)
     cuts: list[_CutDraft]
 
+    def cut_errors(self, duration_seconds: int) -> list[str]:
+        """컷별 규칙 위반을 전부 모은다. 각 항목에 컷 번호를 붙인다.
+
+        Cut을 하나씩 만들면 첫 위반에서 멈추고, 오류 위치(loc)도 컷 기준이라
+        몇 번째 컷인지가 빠진다. 그러면 재요청 피드백이 "나레이션이 31자" 한 줄뿐이라
+        LLM이 어디를 고칠지 몰라 같은 위반을 반복한다(GPT에서 실제로 관측됨).
+        """
+        out: list[str] = []
+        for pos, c in enumerate(self.cuts, start=1):
+            try:
+                self._build_cut(c, pos, duration_seconds)
+            except ValidationError as exc:
+                for e in exc.errors():
+                    field = ".".join(str(p) for p in e["loc"])
+                    where = f"cut{pos}.{field}" if field else f"cut{pos}"
+                    out.append(f"{where}: {e['msg']}")
+        return out
+
+    @staticmethod
+    def _build_cut(c: _CutDraft, index: int, duration_seconds: int) -> Cut:
+        # 컷 번호는 LLM이 쓴 값 대신 순서로 매긴다. 0부터 세는 모델이 있다.
+        return Cut(
+            index=index,
+            image_prompt=c.image_prompt,
+            motion_prompt=c.motion_prompt,
+            narration=c.narration.strip() or None,
+            dialogue=[Line(**line.model_dump()) for line in c.dialogue],
+            camera_distance=c.camera_distance,
+            duration_seconds=duration_seconds,
+        )
+
     def to_storyboard(self, duration_seconds: int) -> Storyboard:
         return Storyboard(
             protagonist=self.protagonist,
             supporting=self.supporting,
             distortions=self.distortions,
             cuts=[
-                Cut(
-                    index=c.index,
-                    image_prompt=c.image_prompt,
-                    motion_prompt=c.motion_prompt,
-                    narration=c.narration.strip() or None,
-                    dialogue=[Line(**line.model_dump()) for line in c.dialogue],
-                    camera_distance=c.camera_distance,
-                    duration_seconds=duration_seconds,
-                )
-                for c in self.cuts
+                self._build_cut(c, pos, duration_seconds)
+                for pos, c in enumerate(self.cuts, start=1)
             ],
         )
 
@@ -137,18 +168,25 @@ async def plan_storyboard(
 
         if len(draft.cuts) != settings.n_cuts:
             last_violations = [f"컷이 {len(draft.cuts)}개다. 정확히 {settings.n_cuts}개여야 한다."]
+        elif cut_errors := draft.cut_errors(settings.cut_duration_seconds):
+            # 나레이션/대사 배타 규칙이나 길이 상한 위반. 예외로 죽이지 않고
+            # 다른 위반과 똑같이 피드백으로 돌려준다.
+            last_violations = cut_errors
+            log.warning("가드레일 위반 %d건, 재요청", len(last_violations))
+            feedback = _feedback(last_violations, meta.raw_json)
+            continue
         else:
             try:
                 sb = draft.to_storyboard(settings.cut_duration_seconds)
             except ValidationError as exc:
-                # 나레이션/대사 배타 규칙이나 길이 상한 위반. 예외로 죽이지 않고
-                # 다른 위반과 똑같이 피드백으로 돌려준다.
+                # 컷별 규칙은 위에서 걸렀다. 여기는 대사 화자가 인물 목록에 없는 것
+                # 같은 스토리보드 전체 규칙 위반이다.
                 last_violations = [
                     f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}"
                     for e in exc.errors()
                 ]
                 log.warning("가드레일 위반 %d건, 재요청", len(last_violations))
-                feedback = _feedback(last_violations)
+                feedback = _feedback(last_violations, meta.raw_json)
                 continue
             violations = lint_storyboard(sb)
             if not violations:
@@ -163,7 +201,7 @@ async def plan_storyboard(
             last_violations = [str(v) for v in violations]
 
         log.warning("가드레일 위반 %d건, 재요청", len(last_violations))
-        feedback = _feedback(last_violations)
+        feedback = _feedback(last_violations, meta.raw_json)
 
     raise GuardrailViolation(
         f"{MAX_ATTEMPTS}회 시도했으나 연출 원칙을 만족하는 스토리보드를 얻지 못했다:\n"
