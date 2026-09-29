@@ -12,6 +12,7 @@ from google import genai
 from ..config import Settings
 from ..errors import ConfigError
 from .base import ImageProvider, LLMProvider, TTSProvider, VideoProvider
+from .fake import FakeImage, FakeLLM, FakeTTS, FakeVideo
 from .gemini_image import GeminiImageProvider
 from .gemini_llm import GeminiLLMProvider
 from .gemini_tts import GeminiTTSProvider
@@ -24,11 +25,14 @@ class Providers:
     image: ImageProvider
     video: VideoProvider
     tts: TTSProvider
-    client: genai.Client
-    video_client: genai.Client
+    # 더미 모드에서는 실제 클라이언트가 없다.
+    client: genai.Client | None
+    video_client: genai.Client | None
 
 
 def build_providers(settings: Settings) -> Providers:
+    if settings.dummy:
+        return build_fake_providers(settings)
     if not settings.google_cloud_project:
         raise ConfigError(
             "GOOGLE_CLOUD_PROJECT가 없다. .env.example을 .env로 복사하고 "
@@ -51,4 +55,15 @@ def build_providers(settings: Settings) -> Providers:
         tts=GeminiTTSProvider(client, settings.tts_model),
         client=client,
         video_client=video_client,
+    )
+
+
+def build_fake_providers(settings: Settings) -> Providers:
+    return Providers(
+        llm=FakeLLM(settings.n_cuts),
+        image=FakeImage(),
+        video=FakeVideo(),
+        tts=FakeTTS(),
+        client=None,
+        video_client=None,
     )
