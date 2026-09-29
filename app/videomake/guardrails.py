@@ -151,10 +151,33 @@ def lint_cut(cut: Cut, protagonist: str) -> list[Violation]:
     return [v.model_copy(update={"field": f"cut{cut.index}.{v.field}"}) for v in out]
 
 
+_HANGUL = re.compile(r"[\uac00-\ud7a3]+")
+
+
+def lint_english(text: str, field: str, names: set[str]) -> list[Violation]:
+    """이미지·영상 모델에 그대로 들어가는 필드는 영어여야 한다.
+
+    인물 이름은 한글 그대로 쓰는 것이 관례라 허용한다(예: "민우 sits alone").
+    그 밖의 한글이 섞이면 위반이다. gpt-4o-mini는 "영어로 작성" 지시를 자주
+    무시하고 한국어 프롬프트를 낸다(실제로 관측됨).
+    """
+    words = [w for w in _HANGUL.findall(text) if w not in names]
+    if not words:
+        return []
+    sample = ", ".join(dict.fromkeys(words[:5]))
+    return [Violation(field=field, rule="영어로 작성", detail=f"한국어 발견: {sample}")]
+
+
 def lint_storyboard(sb: Storyboard) -> list[Violation]:
     out: list[Violation] = []
+    names = {c.name for c in sb.characters}
+    for c in sb.characters:
+        out += lint_english(c.appearance, f"{c.name}.appearance", names)
+        out += lint_english(c.voice, f"{c.name}.voice", names)
     for cut in sb.cuts:
         out += lint_cut(cut, sb.protagonist.name)
+        out += lint_english(cut.image_prompt, f"cut{cut.index}.image_prompt", names)
+        out += lint_english(cut.motion_prompt, f"cut{cut.index}.motion_prompt", names)
     # 마지막 컷은 관찰 거리를 한 번 더 넓힌다.
     if sb.cuts and sb.cuts[-1].camera_distance != "wide":
         out.append(
