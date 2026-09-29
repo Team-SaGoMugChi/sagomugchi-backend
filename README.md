@@ -167,8 +167,8 @@ curl http://localhost:8000/video/jobs/<job_id>
    생성(과금)이 돈다. 이 줄이 없거나 `true`면 과금 0인 더미로 돈다. 실제 모드로 작업이
    시작되면 서버 로그에 경고가 남는다.
 
-**스토리보드 LLM (기본 GPT):** `VIDEOMAKE_LLM_PROVIDER=openai`가 기본값이다. 상담 기능과 같은 팀 공용
-`LLM_API_KEY`로 시나리오(스토리보드)만 GPT가 짠다. 모델은 `VIDEOMAKE_OPENAI_MODEL`(기본
+**스토리보드 LLM (기본 GPT):** `VIDEOMAKE_LLM_PROVIDER=openai`가 기본값이다. 영상 전용 키
+`VIDEOMAKE_OPENAI_API_KEY`로 시나리오(스토리보드)만 GPT가 짠다(상담의 `LLM_API_KEY`와 용도별로 분리). 모델은 `VIDEOMAKE_OPENAI_MODEL`(기본
 `gpt-5.5` — gpt-4o-mini는 연출 규칙을 자주 어겨 재요청 3회 안에 통과하지 못했다). 이미지·영상·나레이션은 그대로 Vertex를 쓰므로 실제 생성에는 GCP 설정이 여전히
 필요하다. Gemini로 바꾸려면 `VIDEOMAKE_LLM_PROVIDER=gemini`. 상담용 `LLM_MODEL`(gpt-4o-mini)은
 그대로 둔다 — GPT-5 계열은 상담 코드의 `max_tokens`/`temperature`를 받지 않는다.
