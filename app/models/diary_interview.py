@@ -37,3 +37,7 @@ class InterviewTurnResponse(BaseModel):
         description="육하원칙 칸 → 사용자가 말한 내용(빈 칸은 null). 칸을 알 수 없는 차례면 비어 있다.",
     )
     missing: list[str] = Field(default_factory=list, description="아직 빈 칸 이름")
+    summary: str | None = Field(
+        None,
+        description="지금까지 들은 이야기의 일기 요약(1~2문장, 보여주기용). 감정 분석 입력이 아니다.",
+    )

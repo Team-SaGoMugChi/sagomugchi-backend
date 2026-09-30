@@ -19,5 +19,9 @@ async def interview_turn(payload: InterviewTurnRequest) -> InterviewTurnResponse
         diary_interview.next_turn, payload.history, payload.user_text
     )
     return InterviewTurnResponse(
-        reply=turn.reply, done=turn.done, slots=turn.slots, missing=turn.missing
+        reply=turn.reply,
+        done=turn.done,
+        slots=turn.slots,
+        missing=turn.missing,
+        summary=turn.summary,
     )

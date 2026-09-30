@@ -154,6 +154,7 @@ def test_interview_turn_uses_plain_text_reply_as_question(monkeypatch):
         "crisis": False,
         "slots": {},
         "missing": [],
+        "summary": None,
     }
 
 
@@ -184,7 +185,34 @@ def test_interview_turn_falls_back_to_fixed_questions(monkeypatch, response):
         "crisis": False,
         "slots": {},
         "missing": [],
+        "summary": None,
     }
+
+
+@pytest.mark.parametrize(
+    "summary, expected",
+    [
+        ("  오늘은 팀 회의에서 의견이 무시당한 하루였어요.  ", "오늘은 팀 회의에서 의견이 무시당한 하루였어요."),
+        ("   ", None),
+        (None, None),
+    ],
+)
+def test_interview_turn_returns_the_diary_summary(monkeypatch, summary, expected):
+    _fake_chat(
+        monkeypatch,
+        json.dumps(
+            {"slots": {"무엇을": "회의"}, "summary": summary, "reply": "어디였어요?"},
+            ensure_ascii=False,
+        ),
+    )
+
+    assert _post().json()["summary"] == expected
+
+
+def test_interview_prompt_keeps_the_summary_to_what_the_user_said():
+    prompt = diary_interview.SYSTEM_PROMPT
+    assert '"summary"' in prompt
+    assert "말하지 않은 감정이나 내용은 넣지 않는다" in prompt
 
 
 def test_interview_turn_cleans_slot_values(monkeypatch):

@@ -11,6 +11,9 @@
     빈 칸 유무로 한다 — 칸이 다 차면 done, 앱은 원문 확인(Step2)으로 넘어간다.
     경과 시간(교수님 피드백)은 따로 칸을 두지 않고 "언제"에 합친다 — 얼마나 지났는지 알
     수 있을 만큼 구체적이어야 채워진 것으로 본다.
+    같은 호출에서 지금까지 들은 이야기의 요약(summary)도 받는다 — 38번 감정 분석 로딩 등에
+    보여주는 용도다. 감정 분석 입력은 요약이 아니라 사용자 답변 원문이다(LLM이 다듬은 글을
+    넣으면 텍스트 감정이 달라진다).
 
 질문은 최대 MAX_FOLLOW_UPS개. 사용자가 끝까지 답하지 않는 칸이 있어도 대화는 끝나야 한다.
 키가 없거나 호출·파싱이 실패하면 고정 문구로 대신하고 경고를 남긴다 — 대화가 멈추지 않게.
@@ -74,6 +77,11 @@ SYSTEM_PROMPT = f"""너는 감정 일기 앱 '오또'의 캐릭터 탄카츄다.
    (예: "스터디룸에 네 명이 같이 있었군요."), 빈 칸 중 이야기 흐름에 가장 자연스러운 것을 묻는다.
    가까운 두 칸(예: 언제·어디서)은 한 질문으로 물어도 된다. 이미 채운 칸은 다시 묻지 않는다.
 3. 빈 칸이 없거나 남은 질문 수가 0이면: 질문하지 않는다. 들은 이야기를 한 구절로 짚으며 이야기해줘서 고맙다고 마무리한다.
+4. 일기 요약(summary)을 매번 새로 쓴다. 짧은 한두 문장, 합쳐서 60자 안팎으로 핵심만 쓴다.
+   칸을 다 넣으려 하지 말고, 무슨 일이 있었는지와 그 일의 핵심 흐름만 담는다.
+   하루를 돌아보는 말투로 쓴다. 예(다른 이야기): "친구 생일 파티에서 케이크가 늦게 와 촛불만 켜고
+   노래를 불렀던 하루였어요."
+   사용자가 직접 말한 감정 표현(예: "속상했어요")은 살리고, 말하지 않은 감정이나 내용은 넣지 않는다.
 
 [말투]
 - 편한 존댓말, 두 문장 이내. 물음표는 한 번만. 매번 같은 말로 시작하지 않는다.
@@ -87,7 +95,7 @@ SYSTEM_PROMPT = f"""너는 감정 일기 앱 '오또'의 캐릭터 탄카츄다.
 
 [출력]
 JSON만 출력한다. 설명을 덧붙이지 않는다.
-{{"slots": {{{_SLOT_EXAMPLE}}}, "reply": "탄카츄가 할 말"}}"""
+{{"slots": {{{_SLOT_EXAMPLE}}}, "summary": "일기 요약", "reply": "탄카츄가 할 말"}}"""
 
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 
@@ -98,6 +106,8 @@ class InterviewTurn:
     done: bool
     # 칸 이름 → 채운 내용(빈 칸은 None). 칸을 알 수 없는 차례(LLM 실패·평문 응답)면 비어 있다.
     slots: dict[str, str | None] = field(default_factory=dict)
+    # 지금까지 들은 이야기의 요약(보여주기용). 못 만든 차례면 None.
+    summary: str | None = None
 
     @property
     def missing(self) -> list[str]:
@@ -143,16 +153,22 @@ def _clean_slots(raw: object) -> dict[str, str | None]:
     return slots
 
 
-def _parse(raw: str) -> tuple[str, dict[str, str | None]]:
+def _parse(raw: str) -> InterviewTurn:
     text = _FENCE.sub("", raw.strip()).strip()
     if text and not text.startswith("{"):
-        # 형식을 어기고 평문으로 답해도 말 자체는 쓸 수 있다. 칸은 알 수 없다.
-        return text, {}
+        # 형식을 어기고 평문으로 답해도 말 자체는 쓸 수 있다. 칸과 요약은 알 수 없다.
+        return InterviewTurn(reply=text, done=False)
     data = json.loads(text)
     reply = data["reply"]
     if not isinstance(reply, str) or not reply.strip():
         raise ValueError("reply must be a non-empty string")
-    return reply.strip(), _clean_slots(data.get("slots"))
+    summary = data.get("summary")
+    return InterviewTurn(
+        reply=reply.strip(),
+        done=False,
+        slots=_clean_slots(data.get("slots")),
+        summary=summary.strip() if isinstance(summary, str) and summary.strip() else None,
+    )
 
 
 def _fallback(asked: int, remaining: int) -> InterviewTurn:
@@ -169,16 +185,15 @@ def next_turn(history: Sequence[InterviewMessage], user_text: str) -> InterviewT
             SYSTEM_PROMPT,
             [{"role": "user", "content": _build_user_prompt(history, user_text, remaining)}],
             temperature=0.7,
-            max_tokens=400,
+            max_tokens=500,
         )
-        reply, slots = _parse(raw)
+        turn = _parse(raw)
     except Exception as exc:
         # 키 미설정·네트워크 오류·JSON 형식 오류 — 대화가 멈추지 않도록 고정 문구로.
         # 사용자 발화는 로그에 남기지 않는다.
         logger.warning("diary interview fell back to a fixed line: %s", type(exc).__name__)
         return _fallback(asked, remaining)
 
-    turn = InterviewTurn(reply=reply, done=False, slots=slots)
     if remaining == 0 or (turn.slots and not turn.missing):
         # 칸이 다 찼거나 상한에 닿으면 끝난다. 그런데도 LLM이 물으면 대화가 끝나지
         # 않은 것처럼 들리니 고정 인사로 바꾼다.
