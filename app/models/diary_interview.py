@@ -29,7 +29,8 @@ class InterviewTurnRequest(BaseModel):
 class InterviewTurnResponse(BaseModel):
     reply: str = Field(..., description="탄카츄가 할 말 — 다음 질문이나 마무리 인사")
     done: bool = Field(
-        False, description="육하원칙 칸이 다 찼거나 질문 상한에 닿음 — 앱은 원문 확인으로 넘어간다."
+        False,
+        description="마무리 확인에 더 없다고 했거나 질문 상한에 닿음 — 앱은 원문 확인으로 넘어간다.",
     )
     crisis: bool = Field(False, description="위기 발화 — 앱은 대화를 멈추고 전문 기관을 안내한다.")
     slots: dict[str, str | None] = Field(
@@ -40,4 +41,23 @@ class InterviewTurnResponse(BaseModel):
     summary: str | None = Field(
         None,
         description="지금까지 들은 이야기의 일기 요약(1~2문장, 보여주기용). 감정 분석 입력이 아니다.",
+    )
+
+
+class RefineRequest(BaseModel):
+    """대화 전체 — 탄카츄의 질문도 넣는다(짧은 답을 문장으로 만들 때 맥락이 된다)."""
+
+    messages: list[InterviewMessage] = Field(..., min_length=1, max_length=40)
+
+    @field_validator("messages")
+    @classmethod
+    def require_user_message(cls, value: list[InterviewMessage]) -> list[InterviewMessage]:
+        if not any(m.speaker == "user" for m in value):
+            raise ValueError("messages must contain at least one user message")
+        return value
+
+
+class RefineResponse(BaseModel):
+    diary: str | None = Field(
+        None, description="대화를 정제한 일기 한 편(보여주기용). 만들지 못하면 null — 앱은 원 답변을 보여준다."
     )

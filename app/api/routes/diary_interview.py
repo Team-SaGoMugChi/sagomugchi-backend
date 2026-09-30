@@ -2,8 +2,13 @@ from starlette.concurrency import run_in_threadpool
 
 from fastapi import APIRouter
 
-from app.models.diary_interview import InterviewTurnRequest, InterviewTurnResponse
-from app.services import diary_interview
+from app.models.diary_interview import (
+    InterviewTurnRequest,
+    InterviewTurnResponse,
+    RefineRequest,
+    RefineResponse,
+)
+from app.services import diary_interview, diary_refine
 from app.services.counsel_guardrail import CRISIS_REPLY, is_crisis
 
 router = APIRouter(prefix="/diary", tags=["diary"])
@@ -25,3 +30,10 @@ async def interview_turn(payload: InterviewTurnRequest) -> InterviewTurnResponse
         missing=turn.missing,
         summary=turn.summary,
     )
+
+
+@router.post("/interview/refine", response_model=RefineResponse)
+async def interview_refine(payload: RefineRequest) -> RefineResponse:
+    """대화 전체를 일기 한 편으로 정제한다(보여주기용 — 감정 분석 입력이 아니다)."""
+    diary = await run_in_threadpool(diary_refine.refine_diary, payload.messages)
+    return RefineResponse(diary=diary)
