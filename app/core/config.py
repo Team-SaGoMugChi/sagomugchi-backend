@@ -25,9 +25,9 @@ class Settings(BaseSettings):
     # 표정 AU 추출용 MediaPipe 모델. 없으면 첫 사용 때 받아온다 (app/services/face_au.py).
     face_landmarker_model_path: str = ".cache/mediapipe/face_landmarker.task"
 
-    # Phase 5+에서 사용 (아직 미확정 — ROADMAP.md 참고)
+    # 상담 대화·리포트용 LLM. .env의 LLM_MODEL이 있으면 그 값이 우선한다.
     llm_api_key: str | None = None
-    llm_model: str = "gpt-4o-mini"
+    llm_model: str = "gpt-4o"
 
     # 상담 맥락(baseline 신호·일기 요약 등)이 앱에서 안 넘어올 때 더미로 채울지.
     # 실제 사용자에게 예시 감정·주제가 섞이지 않도록 기본은 false다. UI 흐름만
