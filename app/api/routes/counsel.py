@@ -7,7 +7,12 @@ from app.models.counsel import (
     CounselTurnResponse,
 )
 from app.services import counsel_context, counsel_report, llm_client
-from app.services.counsel_guardrail import CRISIS_REPLY, is_crisis
+from app.services.counsel_guardrail import (
+    CAUTION_GUIDE,
+    CRISIS_REPLY,
+    RiskLevel,
+    assess,
+)
 from app.services.counsel_prompt import build_system_prompt
 
 router = APIRouter(prefix="/counsel", tags=["counsel"])
@@ -27,8 +32,10 @@ def _to_openai_messages(history: list) -> list[dict]:
 
 @router.post("/turn", response_model=CounselTurnResponse)
 async def counsel_turn(payload: CounselTurnRequest) -> CounselTurnResponse:
-    # 위기 발화는 LLM에 보내지 않고 정해진 안내로 응답한다.
-    if is_crisis(payload.user_text):
+    # 위험도 3단계 판정 (기준: docs/CRISIS_POLICY.md).
+    # CRISIS는 LLM에 보내지 않고 정해진 안내로 응답한다.
+    risk = assess(payload.user_text)
+    if risk.level is RiskLevel.CRISIS:
         return CounselTurnResponse(reply=CRISIS_REPLY, crisis=True)
 
     # baseline·감정 분석·일기 요약. 로컬에서 더미 옵션을 명시적으로 켠
@@ -52,6 +59,10 @@ async def counsel_turn(payload: CounselTurnRequest) -> CounselTurnResponse:
         diary_summary=context.diary_summary,
         recent_themes=context.recent_themes,
     )
+    # CAUTION은 상담을 멈추지 않고, 상담봇이 맥락을 보고 한 번 더 확인하게 한다.
+    if risk.level is RiskLevel.CAUTION:
+        system_prompt += CAUTION_GUIDE
+
     messages = _to_openai_messages(payload.history)
     messages.append({"role": "user", "content": payload.user_text})
 
