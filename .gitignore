@@ -27,3 +27,5 @@ CAP*.jpg
 CAP*.jpeg
 *firebase-adminsdk*.json
 data/sft/*.jsonl
+try_counsel.py
+serviceAccountKey.json
