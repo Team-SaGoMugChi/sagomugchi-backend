@@ -51,6 +51,7 @@ async def analyze_step2(
     voice_file: UploadFile = File(...),
     face_image: UploadFile | None = File(None),
     face_images: list[UploadFile] | None = File(None),
+    face_timeline: str | None = Form(None),
     baseline_voice: str = Form(
         "{}", description="baseline 음성 맵 (JSON 문자열) — Firestore 연동 전까지 클라이언트가 직접 전달"
     ),
@@ -101,11 +102,16 @@ async def analyze_step2(
     face_delta = compute_face_delta(baseline_face_map, face_features)
 
     try:
+        timeline_options = (
+            {"face_timeline": face_timeline, "voice_features": voice_features}
+            if face_timeline is not None else {}
+        )
         multimodal = extract_daily_multimodal_features(
             voice_bytes,
             face_bytes,
             baseline_voice_map,
             baseline_face_map,
+            **timeline_options,
         )
     except AnalysisMediaError as exc:
         raise HTTPException(

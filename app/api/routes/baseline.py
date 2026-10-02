@@ -16,6 +16,7 @@ async def create_baseline(
     voice_file: UploadFile = File(...),
     face_image: UploadFile | None = File(None),
     face_images: list[UploadFile] | None = File(None),
+    face_timeline: str | None = Form(None),
 ) -> BaselineProfile:
     voice_bytes = await voice_file.read()
     uploads = list(face_images or [])
@@ -23,7 +24,8 @@ async def create_baseline(
         uploads.append(face_image)
     face_bytes = [content for upload in uploads if (content := await upload.read())]
     try:
-        profile = build_baseline_profile(user_id=user_id, voice_bytes=voice_bytes, face_image_bytes=face_bytes)
+        kwargs = {"face_timeline": face_timeline} if face_timeline is not None else {}
+        profile = build_baseline_profile(user_id=user_id, voice_bytes=voice_bytes, face_image_bytes=face_bytes, **kwargs)
     except BaselineMeasurementError as exc:
         logger.warning("Baseline measurement rejected: %s", exc.code)
         raise HTTPException(status_code=422, detail={"code": exc.code, "message": str(exc)}) from exc
