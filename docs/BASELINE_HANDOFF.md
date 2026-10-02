@@ -43,7 +43,7 @@ without a detected face return HTTP 422 with `invalid_audio`,
 `voice_not_detected`, `invalid_face_image`, or `face_not_detected`. Each response
 includes a Korean `detail.message` that the client can show as a retry prompt.
 
-New diary clients may send repeated `face_images` and `face_timeline` in the same `recordingMilliseconds,0` format. Step2 rejects malformed or out-of-order timestamps with `invalid_face_timeline`; legacy single-image requests still use the overall face reference. All 300 backend tests pass, including the speaking/silent group comparison. Device timing and upload latency remain unverified. PR #57 is published, not merged into `develop`.
+New diary clients may send repeated `face_images` and `face_timeline` in the same `recordingMilliseconds,0` format. Step2 rejects malformed or out-of-order timestamps with `invalid_face_timeline`; legacy single-image requests still use the overall face reference. All 300 backend tests pass, including the speaking/silent group comparison. Backend PR #57 (through commit `9727527`) is merged into `develop`; frontend PR #56 carries the matching diary capture/upload change and remains open for review. Device timing and upload latency remain unverified.
 
 The Step2 response model also rejects non-finite values and enforces 0–100 for
 emotion scores/intensity and 0–1 for text-emotion probabilities. This prevents
