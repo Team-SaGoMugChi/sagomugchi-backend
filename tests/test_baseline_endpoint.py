@@ -60,6 +60,20 @@ def test_accepts_repeated_face_images(monkeypatch):
     )
 
 
+def test_forwards_face_timeline_with_repeated_images(monkeypatch):
+    profile = BaselineProfile(user_id="user-1", voice={}, face={}, measured_at="2026-09-15T00:00:00+00:00")
+    build = Mock(return_value=profile)
+    monkeypatch.setattr("app.api.routes.baseline.build_baseline_profile", build)
+    monkeypatch.setattr("app.api.routes.baseline.save_baseline_profile", Mock())
+    response = client.post("/baseline", data={"user_id": "user-1", "face_timeline": "1000,0;2000,1"}, files=[
+        ("voice_file", ("voice.wav", b"audio", "audio/wav")),
+        ("face_images", ("a.jpg", b"a", "image/jpeg")),
+        ("face_images", ("b.jpg", b"b", "image/jpeg")),
+    ])
+    assert response.status_code == 200
+    assert build.call_args.kwargs["face_timeline"] == "1000,0;2000,1"
+
+
 @pytest.mark.parametrize("code", ["invalid_audio", "voice_not_detected", "invalid_face_image", "face_not_detected"])
 def test_invalid_measurement_never_overwrites_saved_baseline(monkeypatch, code):
     save = Mock()

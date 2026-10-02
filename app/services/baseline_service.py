@@ -15,7 +15,7 @@ from app.services.feature_maps import face_features_to_map, voice_features_to_ma
 from app.services.multimodal_contract import face_summary_to_map, voice_summary_to_map
 from app.services.modality_emotion import face_log_summary
 from app.services.voice_features import extract_voice_features
-from app.services.voice_windows import VOICE_WINDOW_KEYS, analyze_windows, summarize_windows
+from app.services.voice_windows import MIN_VOICED_RATIO, VOICE_WINDOW_KEYS, analyze_windows, summarize_windows
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,7 @@ def build_baseline_profile(
     user_id: str,
     voice_bytes: bytes,
     face_image_bytes: bytes | Sequence[bytes],
+    face_timeline: str | None = None,
 ) -> BaselineProfile:
     face_frames = (
         [face_image_bytes]
@@ -77,7 +78,8 @@ def build_baseline_profile(
         )
 
     try:
-        voice_summary = summarize_windows(analyze_windows(voice_bytes))
+        voice_windows = analyze_windows(voice_bytes)
+        voice_summary = summarize_windows(voice_windows)
     except (sf.LibsndfileError, ValueError, EOFError) as exc:
         raise BaselineMeasurementError(
             "invalid_audio", "음성 파일을 읽을 수 없어요. 다시 녹음해주세요."
@@ -92,6 +94,25 @@ def build_baseline_profile(
             "voice_not_detected", "목소리를 충분히 확인하지 못했어요. 마이크를 확인하고 다시 말해주세요."
         )
     voice.update(voice_summary_to_map(voice_summary))
+
+    # Old single-frame clients have no synchronized timeline. New clients send
+    # one recording-relative timestamp and prompt flag per uploaded image.
+    timeline: list[tuple[float, bool]] = []
+    if face_timeline is not None:
+        try:
+            entries = face_timeline.split(";")
+            if len(entries) != len(face_frames):
+                raise ValueError("frame count mismatch")
+            for entry in entries:
+                timestamp, prompt = entry.split(",")
+                timestamp_ms = int(timestamp)
+                if timestamp_ms < 0 or timestamp_ms > voice_features.duration_sec * 1000 + 1000 or prompt not in {"0", "1"}:
+                    raise ValueError("invalid frame time")
+                timeline.append((timestamp_ms / 1000, prompt == "1"))
+            if any(later[0] < earlier[0] for earlier, later in zip(timeline, timeline[1:])):
+                raise ValueError("out of order")
+        except ValueError as exc:
+            raise BaselineMeasurementError("invalid_face_timeline", "얼굴 촬영 시각이 올바르지 않아요. 다시 측정해주세요.") from exc
 
     # Geometry retains one representative frame for the v1-compatible fields.
     # A missed first capture must not invalidate usable later frames.
@@ -128,6 +149,31 @@ def build_baseline_profile(
             "face_not_detected", "얼굴을 확인하지 못했어요. 밝은 곳에서 얼굴을 화면 중앙에 맞춰 다시 측정해주세요."
         )
     face.update(face_summary_to_map(face_log_summary(face_aus)))
+    if timeline:
+        speaking_frames = []
+        silent_frames = []
+        for frame, (timestamp_sec, prompt_speaking) in zip(face_aus, timeline):
+            if prompt_speaking:
+                continue  # TTS is audible in the microphone but is not user speech.
+            window = next((w for w in voice_windows if w.start_sec <= timestamp_sec < w.start_sec + w.duration_sec), None)
+            if window is None:
+                continue
+            voiced = window.voiced_ratio >= MIN_VOICED_RATIO
+            if voice_features.voiced_flags is not None and voice_features.voiced_hop_sec:
+                hop = voice_features.voiced_hop_sec
+                start = max(0, int((timestamp_sec - 0.25) / hop))
+                end = min(len(voice_features.voiced_flags), int((timestamp_sec + 0.25) / hop) + 1)
+                if end > start:
+                    voiced = float(sum(voice_features.voiced_flags[start:end])) / (end - start) >= MIN_VOICED_RATIO
+            (speaking_frames if voiced else silent_frames).append(frame)
+        face["speakingFrameCount"] = float(sum(frame.detected for frame in speaking_frames))
+        face["silentFrameCount"] = float(sum(frame.detected for frame in silent_frames))
+        for label, frames in (("speaking", speaking_frames), ("silent", silent_frames)):
+            if any(frame.detected for frame in frames):
+                summary = face_log_summary(frames)
+                face.update({f"{label}{key[0].upper()}{key[1:]}": value
+                             for key, value in face_summary_to_map(summary).items()
+                             if key.endswith("LogMean") or key.endswith("LogStd")})
 
     return BaselineProfile(
         feature_version=2,

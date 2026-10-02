@@ -91,6 +91,40 @@ def test_build_baseline_profile_summarizes_multiple_face_frames(
     assert profile.face["au12LogStd"] > 0
 
 
+def test_timeline_separates_user_speech_from_silence_and_prompt(monkeypatch, valid_voice, valid_face):
+    monkeypatch.setattr("app.services.baseline_service.extract_voice_features", lambda _: replace(valid_voice, duration_sec=6.0))
+    monkeypatch.setattr("app.services.baseline_service.analyze_windows", lambda _: [
+        VoiceWindow(0.0, 3.0, 0.8, 220.0, 0.1, 3.0),
+        VoiceWindow(3.0, 3.0, 0.0, None, 0.01, None),
+    ])
+    profile = build_baseline_profile(
+        "user-1", b"voice", [b"speech", b"silent", b"prompt"],
+        face_timeline="1000,0;4000,0;5000,1",
+    )
+    assert profile.face["auFrameCount"] == 3
+    assert profile.face["speakingFrameCount"] == 1
+    assert profile.face["silentFrameCount"] == 1
+    assert "speakingAu12LogMean" in profile.face
+    assert "silentAu12LogMean" in profile.face
+
+
+def test_timeline_uses_subsecond_voicing_inside_same_three_second_window(monkeypatch, valid_voice, valid_face):
+    features = replace(valid_voice, duration_sec=3.0,
+                       voiced_flags=np.array([True, False, False]), voiced_hop_sec=1.0)
+    monkeypatch.setattr("app.services.baseline_service.extract_voice_features", lambda _: features)
+    profile = build_baseline_profile("user-1", b"voice", [b"speech", b"silent"],
+                                     face_timeline="100,0;2100,0")
+    assert profile.face["speakingFrameCount"] == 1
+    assert profile.face["silentFrameCount"] == 1
+
+
+@pytest.mark.parametrize("timeline", ["0,0", "1000,2;2000,0", "2000,0;1000,0", "7001,0;2000,0"])
+def test_rejects_invalid_face_timeline(timeline, valid_voice, valid_face):
+    with pytest.raises(BaselineMeasurementError) as error:
+        build_baseline_profile("user-1", b"voice", [b"face-1", b"face-2"], face_timeline=timeline)
+    assert error.value.code == "invalid_face_timeline"
+
+
 def test_build_baseline_profile_uses_later_detected_face(monkeypatch, valid_voice, valid_face):
     def extract(frame):
         if frame == b"missed":
