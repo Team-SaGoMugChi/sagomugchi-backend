@@ -14,10 +14,14 @@ logger = logging.getLogger(__name__)
 async def create_baseline(
     user_id: str = Form(...),
     voice_file: UploadFile = File(...),
-    face_image: UploadFile = File(...),
+    face_image: UploadFile | None = File(None),
+    face_images: list[UploadFile] | None = File(None),
 ) -> BaselineProfile:
     voice_bytes = await voice_file.read()
-    face_bytes = await face_image.read()
+    uploads = list(face_images or [])
+    if face_image is not None:
+        uploads.append(face_image)
+    face_bytes = [content for upload in uploads if (content := await upload.read())]
     try:
         profile = build_baseline_profile(user_id=user_id, voice_bytes=voice_bytes, face_image_bytes=face_bytes)
     except BaselineMeasurementError as exc:

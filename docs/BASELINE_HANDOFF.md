@@ -15,7 +15,7 @@ Firestore: `users/{uid}/meta/baseline`. New measurements store `featureVersion: 
 | windowSpeechRate / windowSpeechRateStd | Mean and population standard deviation of estimated syllables/second among voiced windows. |
 | windowCount / windowUsedCount | All windows and voiced windows used for the statistics. |
 
-`measuredAt` is UTC ISO-8601. The face map keeps the existing four ratios and adds log-space mean/std fields for AU1, AU2, AU4, AU5, AU6, AU7, AU12, AU15, and AU17 (`au*LogMean`, `au*LogStd`), plus `auFrameCount` and `auTotalFrames`. The current baseline capture is one image, so AU standard deviations are normally zero and the modality service applies its documented floor.
+`measuredAt` is UTC ISO-8601. The face map keeps the existing four ratios and adds log-space mean/std fields for AU1, AU2, AU4, AU5, AU6, AU7, AU12, AU15, and AU17 (`au*LogMean`, `au*LogStd`), plus `auFrameCount` and `auTotalFrames`. The app captures multiple still frames during the measurement. Legacy clients may continue to send one `face_image`; new clients send repeated `face_images` multipart parts. AU statistics use every submitted frame with a detected face. The modality service applies its documented standard-deviation floor when variance is low.
 
 The full-recording fields remain for compatibility and quality checks. The window and AU statistics are the actual v2 z-score inputs. Silence windows are excluded so pauses do not look like emotion change. Recording length remains metadata rather than emotion intensity.
 

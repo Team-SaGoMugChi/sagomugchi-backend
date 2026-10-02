@@ -1,7 +1,7 @@
 """Validate diary media before baseline comparison and emotion fusion."""
 
 from math import isfinite
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import cv2
@@ -41,11 +41,16 @@ class DailyMultimodalFeatures:
 
 def extract_analysis_features(
     voice_bytes: bytes,
-    face_image_bytes: bytes,
+    face_image_bytes: bytes | Sequence[bytes],
 ) -> tuple[VoiceFeatures, FaceFeatures]:
+    face_frames = (
+        [face_image_bytes]
+        if isinstance(face_image_bytes, bytes)
+        else [frame for frame in face_image_bytes if frame]
+    )
     if not voice_bytes:
         raise AnalysisMediaError("invalid_audio", "음성 파일이 비어 있어요. 다시 녹음해주세요.")
-    if not face_image_bytes:
+    if not face_frames:
         raise AnalysisMediaError("invalid_face_image", "얼굴 사진이 비어 있어요. 다시 촬영해주세요.")
 
     try:
@@ -71,18 +76,23 @@ def extract_analysis_features(
             "목소리를 충분히 확인하지 못했어요. 마이크를 확인하고 다시 녹음해주세요.",
         )
 
-    try:
-        face_features = extract_face_features(face_image_bytes)
-    except (cv2.error, ValueError) as exc:
+    face_features = None
+    readable_frame = False
+    for frame in face_frames:
+        try:
+            candidate = extract_face_features(frame)
+        except (cv2.error, ValueError):
+            continue
+        readable_frame = True
+        face = face_features_to_map(candidate)
+        if face and all(value is not None and isfinite(value) and value >= 0 for value in face.values()):
+            face_features = candidate
+            break
+    if not readable_frame:
         raise AnalysisMediaError(
             "invalid_face_image", "얼굴 사진을 읽을 수 없어요. 다시 촬영해주세요."
-        ) from exc
-
-    face = face_features_to_map(face_features)
-    if not face or any(
-        value is None or not isfinite(value) or value < 0
-        for value in face.values()
-    ):
+        )
+    if face_features is None:
         raise AnalysisMediaError(
             "face_not_detected",
             "얼굴을 확인하지 못했어요. 밝은 곳에서 얼굴을 화면 중앙에 맞춰 다시 촬영해주세요.",
@@ -93,7 +103,7 @@ def extract_analysis_features(
 
 def extract_daily_multimodal_features(
     voice_bytes: bytes,
-    face_image_bytes: bytes,
+    face_image_bytes: bytes | Sequence[bytes],
     baseline_voice: Mapping[str, float],
     baseline_face: Mapping[str, float],
 ) -> DailyMultimodalFeatures:
@@ -110,11 +120,21 @@ def extract_daily_multimodal_features(
             "목소리를 충분히 확인하지 못했어요. 마이크를 확인하고 다시 녹음해주세요.",
         )
 
+    face_frames = (
+        [face_image_bytes]
+        if isinstance(face_image_bytes, bytes)
+        else [frame for frame in face_image_bytes if frame]
+    )
+    if not face_frames:
+        raise AnalysisMediaError(
+            "invalid_face_image", "얼굴 사진이 비어 있어요. 다시 촬영해주세요."
+        )
     try:
-        current_face = get_face_au_extractor().extract(face_image_bytes)
+        extractor = get_face_au_extractor()
+        current_faces = [extractor.extract(frame) for frame in face_frames]
     except FaceAuUnavailable as exc:
         raise AnalysisMediaUnavailable("Face emotion model is unavailable") from exc
-    if not current_face.detected:
+    if not any(frame.detected for frame in current_faces):
         raise AnalysisMediaError(
             "face_not_detected",
             "얼굴을 확인하지 못했어요. 밝은 곳에서 얼굴을 화면 중앙에 맞춰 다시 촬영해주세요.",
@@ -124,7 +144,7 @@ def extract_daily_multimodal_features(
         current_voice, voice_summary_from_map(baseline_voice)
     )
     face = face_emotion_from_frames(
-        [current_face], face_summary_from_map(baseline_face)
+        current_faces, face_summary_from_map(baseline_face)
     )
     if voice is None:
         raise AnalysisMediaError(

@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import Mock
 
 from app.services.text_emotion import KeywordTextEmotionClassifier
 
@@ -11,6 +12,7 @@ import soundfile as sf
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.api.routes import step2 as step2_route
 from app.services.face_features import FaceFeatures
 from app.services.analysis_media import DailyMultimodalFeatures
 from app.services.modality_emotion import FaceEmotion, VoiceArousal
@@ -70,6 +72,8 @@ def _blank_png_bytes() -> bytes:
 
 
 def test_analyze_step2_returns_fusion_result(monkeypatch):
+    multimodal = Mock(wraps=step2_route.extract_daily_multimodal_features)
+    monkeypatch.setattr(step2_route, "extract_daily_multimodal_features", multimodal)
     monkeypatch.setattr(
         "app.services.analysis_media.extract_face_features",
         lambda _bytes: FaceFeatures(
@@ -86,13 +90,15 @@ def test_analyze_step2_returns_fusion_result(monkeypatch):
             "text": "오늘 정말 행복하고 기쁜 하루였어",
             **_baseline_form(),
         },
-        files={
-            "voice_file": ("sample.wav", _sine_wave_bytes(freq_hz=320.0), "audio/wav"),
-            "face_image": ("sample.png", _blank_png_bytes(), "image/png"),
-        },
+        files=[
+            ("voice_file", ("sample.wav", _sine_wave_bytes(freq_hz=320.0), "audio/wav")),
+            ("face_images", ("face-1.png", _blank_png_bytes(), "image/png")),
+            ("face_images", ("face-2.png", _blank_png_bytes(), "image/png")),
+        ],
     )
 
     assert response.status_code == 200
+    assert len(multimodal.call_args.args[1]) == 2
     body = response.json()
 
     assert body["emotion_keywords"][0] == "기쁨"

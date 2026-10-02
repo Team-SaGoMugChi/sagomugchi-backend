@@ -27,8 +27,37 @@ def test_saves_only_valid_profile(monkeypatch):
     response = _submit()
     assert response.status_code == 200
     assert response.json() == profile.model_dump()
-    build.assert_called_once_with(user_id="user-1", voice_bytes=b"audio", face_image_bytes=b"image")
+    build.assert_called_once_with(user_id="user-1", voice_bytes=b"audio", face_image_bytes=[b"image"])
     save.assert_called_once_with(profile)
+
+
+def test_accepts_repeated_face_images(monkeypatch):
+    profile = BaselineProfile(
+        user_id="user-1",
+        voice={"pitchMean": 220.0},
+        face={"auFrameCount": 2.0},
+        measured_at="2026-09-15T00:00:00+00:00",
+    )
+    build = Mock(return_value=profile)
+    monkeypatch.setattr("app.api.routes.baseline.build_baseline_profile", build)
+    monkeypatch.setattr("app.api.routes.baseline.save_baseline_profile", Mock())
+
+    response = client.post(
+        "/baseline",
+        data={"user_id": "user-1"},
+        files=[
+            ("voice_file", ("voice.wav", b"audio", "audio/wav")),
+            ("face_images", ("face-1.jpg", b"image-1", "image/jpeg")),
+            ("face_images", ("face-2.jpg", b"image-2", "image/jpeg")),
+        ],
+    )
+
+    assert response.status_code == 200
+    build.assert_called_once_with(
+        user_id="user-1",
+        voice_bytes=b"audio",
+        face_image_bytes=[b"image-1", b"image-2"],
+    )
 
 
 @pytest.mark.parametrize("code", ["invalid_audio", "voice_not_detected", "invalid_face_image", "face_not_detected"])
