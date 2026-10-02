@@ -3,6 +3,8 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.models.counsel import CounselTurnRequest
+from app.models.video import VideoJobRequest
+from app.services.video_job import to_diary_input
 from app.services import diary_handoff
 from app.services.text_emotion import EMOTION_LABELS, TextEmotionClassifier, TextEmotionResult
 
@@ -121,6 +123,20 @@ def test_handoff_counsel_context_fits_the_counsel_turn_request(classifier):
         incongruent=counsel["incongruent"],
     )
     assert request.emotions == {"상처": 55.0, "기쁨": 30.0, "슬픔": 15.0}
+
+
+def test_handoff_video_file_rides_along_the_video_job_request(classifier):
+    video = _post().json()["video"]
+
+    request = VideoJobRequest(text=TRANSCRIPT, emotion_keywords=["상처"], diary_handoff=video)
+
+    assert request.diary_handoff == video
+    # 영상 파트가 쓰기 전까지는 스토리보드 입력이 바뀌지 않는다.
+    assert to_diary_input(request) == to_diary_input(VideoJobRequest(text=TRANSCRIPT, emotion_keywords=["상처"]))
+
+
+def test_video_job_request_without_handoff_still_works():
+    assert VideoJobRequest(text="평범한 하루였다.").diary_handoff is None
 
 
 @pytest.mark.parametrize(
