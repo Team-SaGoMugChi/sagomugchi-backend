@@ -49,7 +49,8 @@ def _delta_map_to_response(deltas: dict[str, FeatureDelta]) -> dict[str, Feature
 async def analyze_step2(
     text: str = Form(..., min_length=1, max_length=MAX_TEXT_LENGTH, description="Step1 STT 결과(또는 Step2 수정본) 원문"),
     voice_file: UploadFile = File(...),
-    face_image: UploadFile = File(...),
+    face_image: UploadFile | None = File(None),
+    face_images: list[UploadFile] | None = File(None),
     baseline_voice: str = Form(
         "{}", description="baseline 음성 맵 (JSON 문자열) — Firestore 연동 전까지 클라이언트가 직접 전달"
     ),
@@ -81,7 +82,10 @@ async def analyze_step2(
         ) from exc
 
     voice_bytes = await voice_file.read()
-    face_bytes = await face_image.read()
+    uploads = list(face_images or [])
+    if face_image is not None:
+        uploads.append(face_image)
+    face_bytes = [content for upload in uploads if (content := await upload.read())]
 
     try:
         voice_features, face_features = extract_analysis_features(

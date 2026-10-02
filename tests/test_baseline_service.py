@@ -64,6 +64,46 @@ def test_build_baseline_profile_maps_features_to_schema_keys(valid_face):
     assert "windowPitchMean" in profile.voice
 
 
+def test_build_baseline_profile_summarizes_multiple_face_frames(
+    monkeypatch, valid_voice, valid_face
+):
+    values = iter((0.01, 0.1, 0.4))
+
+    def extract(_):
+        value = next(values)
+        return FaceAu(True, {
+            "au1": value, "au2": value, "au4": value, "au5": value,
+            "au6": value, "au7": value, "au12": value, "au15": value,
+            "au17": value,
+        })
+
+    monkeypatch.setattr(
+        "app.services.baseline_service.get_face_au_extractor",
+        lambda: SimpleNamespace(extract=extract),
+    )
+
+    profile = build_baseline_profile(
+        "user-1", b"voice", [b"face-1", b"face-2", b"face-3"]
+    )
+
+    assert profile.face["auFrameCount"] == 3
+    assert profile.face["auTotalFrames"] == 3
+    assert profile.face["au12LogStd"] > 0
+
+
+def test_build_baseline_profile_uses_later_detected_face(monkeypatch, valid_voice, valid_face):
+    def extract(frame):
+        if frame == b"missed":
+            return FaceFeatures(False, None, None, None, None)
+        return valid_face
+
+    monkeypatch.setattr("app.services.baseline_service.extract_face_features", extract)
+    profile = build_baseline_profile("user-1", b"voice", [b"missed", b"face"])
+
+    assert profile.face["eyeAspectRatio"] == 0.28
+    assert profile.face["auTotalFrames"] == 2
+
+
 @pytest.mark.parametrize("samples", [np.zeros(22050), np.array([])])
 def test_rejects_silent_or_empty_recording(samples, valid_face):
     with pytest.raises(BaselineMeasurementError, match="목소리"):

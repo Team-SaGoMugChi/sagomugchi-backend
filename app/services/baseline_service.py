@@ -1,6 +1,7 @@
 """Validate baseline inputs before they can replace a saved reference."""
 
 import logging
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from math import isfinite
 
@@ -27,10 +28,19 @@ class BaselineMeasurementError(ValueError):
         self.code = code
 
 
-def build_baseline_profile(user_id: str, voice_bytes: bytes, face_image_bytes: bytes) -> BaselineProfile:
+def build_baseline_profile(
+    user_id: str,
+    voice_bytes: bytes,
+    face_image_bytes: bytes | Sequence[bytes],
+) -> BaselineProfile:
+    face_frames = (
+        [face_image_bytes]
+        if isinstance(face_image_bytes, bytes)
+        else [frame for frame in face_image_bytes if frame]
+    )
     if not voice_bytes:
         raise BaselineMeasurementError("invalid_audio", "음성 파일이 비어 있어요. 다시 측정해주세요.")
-    if not face_image_bytes:
+    if not face_frames:
         raise BaselineMeasurementError("invalid_face_image", "얼굴 사진이 비어 있어요. 다시 측정해주세요.")
 
     try:
@@ -83,31 +93,41 @@ def build_baseline_profile(user_id: str, voice_bytes: bytes, face_image_bytes: b
         )
     voice.update(voice_summary_to_map(voice_summary))
 
-    try:
-        face_features = extract_face_features(face_image_bytes)
-    except (cv2.error, ValueError) as exc:
+    # Geometry retains one representative frame for the v1-compatible fields.
+    # A missed first capture must not invalidate usable later frames.
+    face = {}
+    readable_frame = False
+    for frame in face_frames:
+        try:
+            candidate = face_features_to_map(extract_face_features(frame))
+        except (cv2.error, ValueError):
+            continue
+        readable_frame = True
+        if candidate and all(value is not None and isfinite(value) and value >= 0 for value in candidate.values()):
+            face = candidate
+            break
+    if not readable_frame:
         raise BaselineMeasurementError(
             "invalid_face_image", "얼굴 사진을 읽을 수 없어요. 다시 촬영해주세요."
-        ) from exc
-
-    face = face_features_to_map(face_features)
-    if not face or any(value is None or not isfinite(value) or value < 0 for value in face.values()):
+        )
+    if not face:
         raise BaselineMeasurementError(
             "face_not_detected", "얼굴을 확인하지 못했어요. 밝은 곳에서 얼굴을 화면 중앙에 맞춰 다시 측정해주세요."
         )
 
     try:
-        face_au = get_face_au_extractor().extract(face_image_bytes)
+        extractor = get_face_au_extractor()
+        face_aus = [extractor.extract(frame) for frame in face_frames]
     except FaceAuUnavailable as exc:
         logger.exception("Face AU extraction failed")
         raise BaselineMeasurementError(
             "face_analysis_unavailable", "표정 분석기를 준비하지 못했어요. 잠시 후 다시 측정해주세요."
         ) from exc
-    if not face_au.detected:
+    if not any(frame.detected for frame in face_aus):
         raise BaselineMeasurementError(
             "face_not_detected", "얼굴을 확인하지 못했어요. 밝은 곳에서 얼굴을 화면 중앙에 맞춰 다시 측정해주세요."
         )
-    face.update(face_summary_to_map(face_log_summary([face_au])))
+    face.update(face_summary_to_map(face_log_summary(face_aus)))
 
     return BaselineProfile(
         feature_version=2,
