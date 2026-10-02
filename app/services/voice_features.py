@@ -26,6 +26,8 @@ class VoiceFeatures:
     rms_mean: float
     rms_std: float
     speaking_rate_sps: float | None  # 음절/초 추정치
+    voiced_flags: np.ndarray | None = None  # pYIN 시각별 유성 여부; Firestore에는 저장하지 않음
+    voiced_hop_sec: float | None = None
 
 
 def load_audio(audio_bytes: bytes) -> tuple[np.ndarray, int]:
@@ -100,4 +102,6 @@ def extract_voice_features(audio_bytes: bytes) -> VoiceFeatures:
         rms_mean=rms_mean,
         rms_std=rms_std,
         speaking_rate_sps=speaking_rate_sps,
+        voiced_flags=voiced_flag,
+        voiced_hop_sec=_HOP_LENGTH / sr,
     )
