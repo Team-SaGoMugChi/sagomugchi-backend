@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -14,6 +14,14 @@ class VideoJobRequest(BaseModel):
     emotion_intensity: int | None = Field(None, ge=0, le=100, description="Step2 emotion_intensity")
     protagonist_name: str | None = Field(
         None, max_length=10, description="영상 속 인물 이름. 없으면 LLM이 짓는다"
+    )
+    diary_handoff: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "일기 기록 뒤 만든 영상 전달 JSON(oddo.diary_emotion.v1, /diary/handoff의 video) — "
+            "장면·전환점·문장별 감정·정제 일기·대화 칸. 앱이 있으면 그대로 싣는다. "
+            "스토리보드에서 어떻게 쓸지는 영상 파트가 정한다"
+        ),
     )
 
     @field_validator("text")
