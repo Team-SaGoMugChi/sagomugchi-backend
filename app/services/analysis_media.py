@@ -14,11 +14,16 @@ from app.services.modality_emotion import (
     FaceEmotion,
     VoiceArousal,
     face_emotion_from_frames,
+    face_emotion_from_grouped_frames,
     voice_arousal_from_summary,
 )
-from app.services.multimodal_contract import face_summary_from_map, voice_summary_from_map
+from app.services.multimodal_contract import (
+    face_summary_from_map,
+    group_face_summary_from_map,
+    voice_summary_from_map,
+)
 from app.services.voice_features import VoiceFeatures, extract_voice_features
-from app.services.voice_windows import VOICE_WINDOW_KEYS, analyze_windows, summarize_windows
+from app.services.voice_windows import MIN_VOICED_RATIO, VOICE_WINDOW_KEYS, analyze_windows, summarize_windows
 
 
 class AnalysisMediaError(ValueError):
@@ -106,6 +111,9 @@ def extract_daily_multimodal_features(
     face_image_bytes: bytes | Sequence[bytes],
     baseline_voice: Mapping[str, float],
     baseline_face: Mapping[str, float],
+    *,
+    face_timeline: str | None = None,
+    voice_features: VoiceFeatures | None = None,
 ) -> DailyMultimodalFeatures:
     """Extract v2 face/voice evidence using the saved statistical baseline."""
     try:
@@ -143,9 +151,48 @@ def extract_daily_multimodal_features(
     voice = voice_arousal_from_summary(
         current_voice, voice_summary_from_map(baseline_voice)
     )
-    face = face_emotion_from_frames(
-        current_faces, face_summary_from_map(baseline_face)
-    )
+    overall_face = face_summary_from_map(baseline_face)
+    face = None
+    if face_timeline is not None:
+        try:
+            entries = face_timeline.split(";")
+            if len(entries) != len(current_faces):
+                raise ValueError("frame count mismatch")
+            timestamps = []
+            for entry in entries:
+                timestamp, prompt = entry.split(",")
+                milliseconds = int(timestamp)
+                if (
+                    milliseconds < 0
+                    or prompt != "0"
+                    or voice_features is None
+                    or milliseconds > voice_features.duration_sec * 1000 + 1000
+                ):
+                    raise ValueError("invalid frame time")
+                timestamps.append(milliseconds / 1000)
+            if timestamps != sorted(timestamps):
+                raise ValueError("out of order")
+        except ValueError as exc:
+            raise AnalysisMediaError(
+                "invalid_face_timeline", "얼굴 촬영 시각이 올바르지 않아요. 다시 녹음해주세요."
+            ) from exc
+        flags = voice_features.voiced_flags
+        hop = voice_features.voiced_hop_sec
+        if flags is not None and hop:
+            speaking_face = group_face_summary_from_map(baseline_face, "speaking") or overall_face
+            silent_face = group_face_summary_from_map(baseline_face, "silent") or overall_face
+            baselines = []
+            for time_sec in timestamps:
+                start = max(0, int((time_sec - 0.25) / hop))
+                end = min(len(flags), int((time_sec + 0.25) / hop) + 1)
+                voiced = (
+                    end > start
+                    and float(sum(flags[start:end])) / (end - start) >= MIN_VOICED_RATIO
+                )
+                baselines.append(speaking_face if voiced else silent_face)
+            face = face_emotion_from_grouped_frames(current_faces, baselines)
+    if face is None:
+        face = face_emotion_from_frames(current_faces, overall_face)
     if voice is None:
         raise AnalysisMediaError(
             "voice_not_detected",

@@ -7,6 +7,7 @@ the fusion services.
 """
 
 from collections.abc import Mapping
+from math import isfinite
 
 from app.services.face_au import AU_KEYS, FaceAuSummary
 from app.services.voice_windows import VOICE_WINDOW_KEYS, VoiceWindowSummary
@@ -72,4 +73,39 @@ def face_summary_from_map(values: Mapping[str, float]) -> FaceAuSummary:
         total_frames=int(values["auTotalFrames"]),
         mean={key: float(values[field]) for key, field in FACE_MEAN_FIELDS.items()},
         std={key: float(values[field]) for key, field in FACE_STD_FIELDS.items()},
+    )
+
+
+def group_face_summary_from_map(values: Mapping[str, float], group: str) -> FaceAuSummary | None:
+    """Optional speaking/silent baseline; older v2 documents use the overall one."""
+    if group not in {"speaking", "silent"}:
+        raise ValueError("invalid face group")
+    count = values.get(f"{group}FrameCount", 0)
+    if (
+        isinstance(count, bool)
+        or not isinstance(count, (int, float))
+        or not isfinite(count)
+        or count <= 0
+        or count != int(count)
+    ):
+        return None
+    fields = {
+        key: values.get(f"{group}{field[0].upper()}{field[1:]}")
+        for key, field in FACE_MEAN_FIELDS.items()
+    }
+    std = {
+        key: values.get(f"{group}{field[0].upper()}{field[1:]}")
+        for key, field in FACE_STD_FIELDS.items()
+    }
+    if any(
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not isfinite(value)
+        for value in (*fields.values(), *std.values())
+    ) or any(value < 0 for value in std.values()):
+        return None
+    return FaceAuSummary(
+        frame_count=int(count), total_frames=int(count),
+        mean={key: float(value) for key, value in fields.items()},
+        std={key: float(value) for key, value in std.items()},
     )

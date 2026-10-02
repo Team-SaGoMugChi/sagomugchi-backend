@@ -140,6 +140,26 @@ def face_emotion_from_frames(frames: Sequence[FaceAu], baseline_log: FaceAuSumma
     return face_emotion(peak)
 
 
+def face_emotion_from_grouped_frames(
+    frames: Sequence[FaceAu], baselines: Sequence[FaceAuSummary]
+) -> FaceEmotion | None:
+    """Compare each diary frame with the baseline from the same speaking state."""
+    if len(frames) != len(baselines):
+        raise ValueError("frame/baseline count mismatch")
+    frame_z = [
+        face_z(log_au(frame.au), baseline)
+        for frame, baseline in zip(frames, baselines)
+        if frame.detected and baseline.frame_count > 0
+    ]
+    if not frame_z:
+        return None
+    peak = {
+        key: float(np.percentile([z[key] for z in frame_z if key in z], FACE_PEAK_PERCENTILE))
+        for key in frame_z[0]
+    }
+    return face_emotion(peak)
+
+
 def face_timeline(
     frames: Sequence[tuple[float, FaceAu]], baseline_log: FaceAuSummary
 ) -> list[FaceMoment]:
