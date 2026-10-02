@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.routes import (
     baseline,
     counsel,
+    diary_handoff,
     diary_interview,
     face,
     health,
@@ -19,6 +20,7 @@ api_router.include_router(voice.router)
 api_router.include_router(face.router)
 api_router.include_router(baseline.router)
 api_router.include_router(diary_interview.router)
+api_router.include_router(diary_handoff.router)
 api_router.include_router(step2.router)
 api_router.include_router(counsel.router)
 api_router.include_router(stt.router)
