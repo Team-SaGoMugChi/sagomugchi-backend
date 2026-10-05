@@ -80,6 +80,7 @@ server/
 | `feature_maps.py` | VoiceFeatures/FaceFeatures → Firestore 스키마 키(`pitchMean` 등) 변환 | 완료 (baseline_service와 공유) |
 | `baseline_delta.py` | baseline 대비 Δ 계산 (baseline/current/delta/relative_delta) | 완료 |
 | `text_emotion.py` | 텍스트 → 감정 6종(AI Hub 감성대화 라벨) 분포 | **임시 키워드 사전 폴백** — ALBERT 모델은 팀 미확정(ROADMAP.md 2026-07-29)이라 `TextEmotionClassifier` 인터페이스 뒤에 플러그인으로만 자리 잡아둠 |
+| `sentence_emotion.py` | 일기를 문장별로 분류해 문장 길이로 가중 평균 (일기 전체를 한 번에 넣으면 한 감정만 남음) | 완료 (전달 JSON과 문장 나누기 공유) |
 | `fusion.py` | 텍스트 감정 + 음성/표정 Δ → `emotion_keywords`/`emotion_scores`/`emotion_intensity` | **결합 공식은 잠정치** — 논문(`_docs/thesis.pdf`) 원본 수식은 이 환경에 PDF 렌더링 도구가 없어 확인 못 함. "카테고리는 텍스트, 강도는 Δ" 방식의 통상적인 fusion 패턴으로 구현 |
 
 `text_emotion.py`의 `KeywordTextEmotionClassifier`와 `fusion.py`의 강도 계산은 정확도용이 아니라
