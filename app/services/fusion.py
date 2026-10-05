@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from app.services.baseline_delta import FeatureDelta
 from app.services.modality_emotion import FaceEmotion, VoiceArousal
 from app.services.multimodal_fusion import fuse_multimodal
+from app.services.sentence_emotion import classify_by_sentence
 from app.services.text_emotion import TextEmotionResult, get_text_emotion_classifier
 
 _RELATIVE_DELTA_CLAMP = 3.0  # relative_delta를 이 값으로 클리핑한 뒤 0~1로 정규화
@@ -53,7 +54,8 @@ def fuse_emotion(
     face: FaceEmotion | None = None,
     voice: VoiceArousal | None = None,
 ) -> FusionResult:
-    text_emotion = get_text_emotion_classifier().classify(text)
+    # 일기 전체를 한 번에 분류하면 한 감정만 남아서 문장별로 매겨 가중 평균한다.
+    text_emotion = classify_by_sentence(get_text_emotion_classifier(), text)
 
     if face is not None or voice is not None:
         fused = fuse_multimodal(text_emotion, face=face, voice=voice)

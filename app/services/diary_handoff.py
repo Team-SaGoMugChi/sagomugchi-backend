@@ -20,11 +20,11 @@
 """
 
 import logging
-import re
 from collections.abc import Sequence
 
 from app.models.diary_handoff import HandoffRequest
 from app.services.multimodal_fusion import text_valence
+from app.services.sentence_emotion import iter_turn_sentences
 from app.services.text_emotion import EMOTION_LABELS, TextEmotionClassifier, get_text_emotion_classifier
 
 logger = logging.getLogger(__name__)
@@ -73,10 +73,6 @@ COUNSEL_GUIDE = {
 }
 
 
-def _split_sentences(text: str) -> list[str]:
-    return [part.strip() for part in re.split(r"(?<=[.?!])\s+", text.strip()) if part.strip()]
-
-
 def tone_of(scores_0_100: dict[str, float]) -> str:
     value = text_valence({label: score / 100 for label, score in scores_0_100.items()})
     return "긍정" if value > 0.2 else "부정" if value < -0.2 else NEUTRAL
@@ -102,12 +98,8 @@ def _sentence(index: int, turn: int, text: str, classifier: TextEmotionClassifie
 
 def build_sentences(transcript: str, classifier: TextEmotionClassifier | None) -> list[dict]:
     """차례(줄)마다 문장부호로 나눠 문장별 감정을 붙인다."""
-    sentences = []
-    turns = [line for line in transcript.splitlines() if line.strip()]
-    for turn, line in enumerate(turns, start=1):
-        for text in _split_sentences(line):
-            sentences.append(_sentence(len(sentences) + 1, turn, text, classifier))
-    return sentences
+    return [_sentence(index, turn, text, classifier)
+            for index, (turn, text) in enumerate(iter_turn_sentences(transcript), start=1)]
 
 
 def _weight(sentence: dict) -> int:
