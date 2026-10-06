@@ -131,13 +131,15 @@ class VideoJobManager:
         비중은 실제 소요 시간 기준이다. Veo 렌더가 대부분을 차지한다.
         """
         job = self._store(job_id)
-        n = self.settings.n_cuts
+        if not job.storyboard_path.exists():
+            return "storyboard", 0.0
+        # 컷 수는 일기마다 스토리보드가 정한다.
+        storyboard = job.load_storyboard()
+        n = len(storyboard.cuts)
 
         def count(path_of) -> int:
             return sum(1 for i in range(1, n + 1) if path_of(i).exists())
 
-        if not job.storyboard_path.exists():
-            return "storyboard", 0.0
         images = count(job.cut_image) + int(job.character_sheet_path.exists())
         if images < n + 1:
             return "images", 0.05 + 0.25 * images / (n + 1)
@@ -145,7 +147,7 @@ class VideoJobManager:
         if videos < n:
             return "videos", 0.30 + 0.60 * videos / n
         # 대사 컷은 Veo가 직접 말하므로 나레이션 파일이 없다.
-        narrated = [c.index for c in job.load_storyboard().cuts if not c.is_dialogue]
+        narrated = [c.index for c in storyboard.cuts if not c.is_dialogue]
         done = sum(1 for i in narrated if job.cut_narration(i).exists())
         if done < len(narrated):
             return "narration", 0.90 + 0.05 * done / len(narrated)
