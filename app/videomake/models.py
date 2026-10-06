@@ -43,6 +43,9 @@ class DiaryInput(BaseModel):
     text: str
     emotion: dict[str, Any] = Field(default_factory=dict)
     protagonist_name: str | None = None
+    # 일기 기록 파트의 전달 JSON(oddo.diary_emotion.v1) — 장면·감정 전환점·대화 칸.
+    # 없으면 text·emotion만으로 스토리보드를 만든다.
+    handoff: dict[str, Any] | None = None
 
 
 class CharacterProfile(BaseModel):

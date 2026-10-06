@@ -23,6 +23,7 @@ from pathlib import Path
 from app.models.video import VideoJobRequest, VideoJobStatus, VideoStage
 from app.videomake.config import Settings, get_settings
 from app.videomake.errors import BudgetExceeded, GuardrailViolation, VideomakeError
+from app.videomake.handoff import diary_text
 from app.videomake.job import JobStore
 from app.videomake.models import DiaryInput
 from app.videomake.pipeline import Pipeline
@@ -34,10 +35,11 @@ _FAILED_DEFAULT = "영상을 만들지 못했어요. 잠시 후 다시 시도해
 
 
 def to_diary_input(req: VideoJobRequest) -> DiaryInput:
-    """Step2 분석 결과 → videomake 입력.
+    """Step2 분석 결과 + 일기 전달 JSON → videomake 입력.
 
     스토리보드 LLM은 emotion을 JSON 그대로 읽으므로 키 이름을 videomake 예시
     (examples/diary.sample.json)와 맞추고, 값이 없는 키는 넣지 않는다.
+    일기 글은 전달 JSON의 정제 일기를 먼저 쓴다 — `text`는 다듬지 않은 대화 원문이다.
     """
     emotion: dict = {}
     if req.emotion_keywords:
@@ -48,7 +50,12 @@ def to_diary_input(req: VideoJobRequest) -> DiaryInput:
         emotion["intensity"] = round(req.emotion_intensity / 100, 2)
     if req.emotion_scores:
         emotion["scores"] = req.emotion_scores
-    return DiaryInput(text=req.text, emotion=emotion, protagonist_name=req.protagonist_name)
+    return DiaryInput(
+        text=diary_text(req.diary_handoff) or req.text,
+        emotion=emotion,
+        protagonist_name=req.protagonist_name,
+        handoff=req.diary_handoff,
+    )
 
 
 @dataclass

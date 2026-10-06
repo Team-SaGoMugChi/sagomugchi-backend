@@ -26,6 +26,7 @@ from ..config import (
 )
 from ..errors import GuardrailViolation
 from ..guardrails import lint_storyboard
+from ..handoff import storyboard_context
 from ..job import JobStore
 from ..models import (
     CharacterProfile,
@@ -175,6 +176,7 @@ async def plan_storyboard(
         diary_text=diary.text,
         emotion_json=json.dumps(diary.emotion, ensure_ascii=False, indent=2),
         protagonist_name=diary.protagonist_name,
+        handoff=storyboard_context(diary.handoff),
         min_total_seconds=settings.min_total_seconds,
         max_total_seconds=settings.max_total_seconds,
     )

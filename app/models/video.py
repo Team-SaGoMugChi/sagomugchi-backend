@@ -20,7 +20,8 @@ class VideoJobRequest(BaseModel):
         description=(
             "일기 기록 뒤 만든 영상 전달 JSON(oddo.diary_emotion.v1, /diary/handoff의 video) — "
             "장면·전환점·문장별 감정·정제 일기·대화 칸. 앱이 있으면 그대로 싣는다. "
-            "스토리보드에서 어떻게 쓸지는 영상 파트가 정한다"
+            "스토리보드는 정제 일기를 일기 글로 쓰고 장면·전환점·대화 칸·표정 변화를 "
+            "컷 구성 근거로 쓴다. 없거나 형식이 다르면 text·감정만으로 만든다"
         ),
     )
 

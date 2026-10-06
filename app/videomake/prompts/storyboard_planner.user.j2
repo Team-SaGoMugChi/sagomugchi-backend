@@ -5,17 +5,67 @@
 ## 감정분석 결과
 
 {{ emotion_json }}
+{%- if handoff %}
 
-{% if protagonist_name %}
+## 일기 기록 자료
+
+일기를 쓰며 사용자와 나눈 대화에서 정리한 것이다. 장면 구성과 분위기를 정하는 근거로 쓴다.
+{%- if handoff.summary %}
+
+### 요약
+
+{{ handoff.summary }}
+{%- endif %}
+{%- if handoff.slots %}
+
+### 대화에서 모은 사실 (사용자가 말한 그대로)
+{% for name, value in handoff.slots.items() %}
+- {{ name }}: {{ value }}
+{%- endfor %}
+{%- endif %}
+{%- if handoff.scenes %}
+
+### 장면 후보 (감정 톤이 같은 문장끼리 묶은 것, 순서대로)
+{% for scene in handoff.scenes %}
+{{ loop.index }}. [{{ scene.tone }}{% if scene.emotions %} · {{ scene.emotions | join(", ") }}{% endif %}{% if scene.intensity is not none %} · 강도 {{ scene.intensity }}{% endif %}] {{ scene.text }}
+{%- endfor %}
+{%- endif %}
+{%- if handoff.turning_points %}
+
+### 감정 전환점
+{% for point in handoff.turning_points %}
+- {{ point["from"] or "?" }} → {{ point["to"] or "?" }}: "{{ point.sentence }}"
+{%- endfor %}
+{%- endif %}
+{%- if handoff.arc %}
+
+### 감정 흐름
+
+{{ handoff.arc }}
+{%- endif %}
+{%- if handoff.signals %}
+
+### 평소와 달랐던 표정·목소리
+{% for signal in handoff.signals %}
+- {{ signal }}
+{%- endfor %}
+{%- endif %}
+{%- if handoff.incongruent %}
+
+### 말과 표정의 어긋남
+
+말한 감정과 표정·목소리가 서로 어긋났다.
+{%- endif %}
+{%- endif %}
+
 ## 주인공 이름
 
+{% if protagonist_name -%}
 이 인물의 이름은 "{{ protagonist_name }}"이다. 이 이름을 그대로 쓴다.
-{% else %}
-## 주인공 이름
-
+{%- else -%}
 일기 작성자와 겹치지 않는, 이야기 속 인물로 읽히는 한국어 이름을 하나 지어라.
 흔하고 중립적인 이름이 좋다.
-{% endif %}
+{%- endif %}
 
 위 내용을 스토리보드로 만들어라. 컷 수와 컷마다의 길이는 일기 분량에 맞춰 정하고,
 전체 길이는 {{ min_total_seconds }}~{{ max_total_seconds }}초 안에 둔다.
