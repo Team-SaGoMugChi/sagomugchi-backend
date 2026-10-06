@@ -36,8 +36,9 @@ def _settings(tmp_path, n_cuts: int) -> Settings:
         _env_file=None,
         dummy=True,
         jobs_dir=tmp_path / "jobs",
-        n_cuts=n_cuts,
-        cut_duration_seconds=4,
+        # 더미 LLM은 최소 컷 수 × 4초 영상을 만든다.
+        min_cuts=n_cuts,
+        min_total_seconds=4,
         poll_interval_seconds=0.0,
     )
 

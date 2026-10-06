@@ -12,13 +12,15 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from .config import (
-    DIALOGUE_MAX_CHARS,
     DIALOGUE_MAX_LINES,
     DIALOGUE_MIN_LINES,
-    NARRATION_MAX_CHARS,
+    DIALOGUE_MIN_SECONDS,
+    CutSeconds,
+    dialogue_max_chars,
+    narration_max_chars,
 )
 
 # 클로즈업 계열이 아예 표현 불가능하도록 세 값만 허용한다. (연출 원칙 2)
@@ -41,6 +43,9 @@ class DiaryInput(BaseModel):
     text: str
     emotion: dict[str, Any] = Field(default_factory=dict)
     protagonist_name: str | None = None
+    # 일기 기록 파트의 전달 JSON(oddo.diary_emotion.v1) — 장면·감정 전환점·대화 칸.
+    # 없으면 text·emotion만으로 스토리보드를 만든다.
+    handoff: dict[str, Any] | None = None
 
 
 class CharacterProfile(BaseModel):
@@ -78,7 +83,7 @@ class Line(BaseModel):
 class Cut(BaseModel):
     index: int = Field(ge=1)
     image_prompt: str = Field(description="무엇이 보이는가 (영어)")
-    motion_prompt: str = Field(description="8초 동안 무엇이 변하는가 (영어)")
+    motion_prompt: str = Field(description="컷 길이 동안 무엇이 변하는가 (영어)")
     narration: str | None = Field(
         default=None, description="화면 밖 관찰자 나레이션 (한국어)"
     )
@@ -86,21 +91,21 @@ class Cut(BaseModel):
         default_factory=list, description="인물이 직접 말하는 대사 (한국어)"
     )
     camera_distance: CameraDistance = "full"
-    duration_seconds: Literal[4, 6, 8] = 8
+    duration_seconds: CutSeconds = 8
 
     @property
     def is_dialogue(self) -> bool:
         return bool(self.dialogue)
 
-    @field_validator("narration")
-    @classmethod
-    def _narration_fits_in_cut(cls, v: str | None) -> str | None:
-        if v is not None and len(v) > NARRATION_MAX_CHARS:
+    @model_validator(mode="after")
+    def _narration_fits_in_cut(self) -> Cut:
+        limit = narration_max_chars(self.duration_seconds)
+        if self.narration is not None and len(self.narration) > limit:
             raise ValueError(
-                f"나레이션이 {len(v)}자로 상한 {NARRATION_MAX_CHARS}자를 넘는다. "
-                "컷 길이 안에 읽히지 않는다."
+                f"나레이션이 {len(self.narration)}자로 {self.duration_seconds}초 컷 상한 "
+                f"{limit}자를 넘는다. 컷 길이 안에 읽히지 않는다."
             )
-        return v
+        return self
 
     @model_validator(mode="after")
     def _exactly_one_voice_track(self) -> Cut:
@@ -128,11 +133,17 @@ class Cut(BaseModel):
                 f"대사가 {len(self.dialogue)}줄로 상한 {DIALOGUE_MAX_LINES}줄을 넘는다. "
                 f"{self.duration_seconds}초 안에 들어가지 않는다."
             )
-        total = sum(len(line.text) for line in self.dialogue)
-        if total > DIALOGUE_MAX_CHARS:
+        if self.dialogue and self.duration_seconds < DIALOGUE_MIN_SECONDS:
             raise ValueError(
-                f"대사 총 길이가 {total}자로 상한 {DIALOGUE_MAX_CHARS}자를 넘는다. "
-                f"{self.duration_seconds}초 안에 말해지지 않는다."
+                f"대사 컷이 {self.duration_seconds}초다. 두 줄 이상 주고받으려면 "
+                f"{DIALOGUE_MIN_SECONDS}초 이상이어야 한다."
+            )
+        total = sum(len(line.text) for line in self.dialogue)
+        limit = dialogue_max_chars(self.duration_seconds)
+        if total > limit:
+            raise ValueError(
+                f"대사 총 길이가 {total}자로 {self.duration_seconds}초 컷 상한 {limit}자를 "
+                "넘는다. 컷 길이 안에 말해지지 않는다."
             )
         return self
 

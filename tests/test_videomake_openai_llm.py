@@ -103,7 +103,7 @@ def test_openai_provider_without_key_is_config_error():
 
 def test_gpt_storyboard_passes_guardrails(tmp_path):
     """GPT가 준 스토리보드도 Gemini와 똑같이 가드레일 검사를 거쳐 저장된다."""
-    settings = _settings(jobs_dir=tmp_path / "jobs", n_cuts=2, cut_duration_seconds=4)
+    settings = _settings(jobs_dir=tmp_path / "jobs", min_cuts=2, min_total_seconds=8)
     providers = build_fake_providers(settings)
     completions = _Completions(parsed=_draft(2))
     pipe = Pipeline(

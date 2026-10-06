@@ -30,25 +30,26 @@ def _payload(n_cuts=3):
 
 
 def _settings():
-    return Settings(_env_file=None, n_cuts=3, cut_duration_seconds=4)
+    return Settings(_env_file=None)
 
 
 def test_all_cut_errors_are_reported_with_cut_numbers():
     payload = _payload()
     payload["cuts"][0]["narration"] = ""  # 나레이션도 대사도 없음
-    payload["cuts"][2]["narration"] = "가" * 40  # 28자 상한 초과
-    errors = _StoryboardDraft.model_validate(payload).cut_errors(4)
+    payload["cuts"][2]["narration"] = "가" * 40  # 4초 컷 14자 상한 초과
+    errors = _StoryboardDraft.model_validate(payload).cut_errors()
 
     assert len(errors) == 2
     assert errors[0].startswith("cut1")
-    assert errors[1].startswith("cut3.narration")
+    assert errors[1].startswith("cut3")
+    assert "나레이션" in errors[1] and "4초 컷 상한 14자" in errors[1]
 
 
 def test_cut_index_follows_order_not_llm_value():
     payload = _payload()
     for i, cut in enumerate(payload["cuts"]):
         cut["index"] = i  # 0부터 세는 모델
-    sb = _StoryboardDraft.model_validate(payload).to_storyboard(4)
+    sb = _StoryboardDraft.model_validate(payload).to_storyboard()
     assert [c.index for c in sb.cuts] == [1, 2, 3]
 
 
@@ -74,7 +75,7 @@ def test_retry_feedback_includes_previous_result_and_violations():
 def _storyboard(**cut_overrides) -> Storyboard:
     payload = _payload()
     payload["cuts"][0].update(cut_overrides)
-    return _StoryboardDraft.model_validate(payload).to_storyboard(4)
+    return _StoryboardDraft.model_validate(payload).to_storyboard()
 
 
 def _english_violations(sb):
@@ -96,5 +97,5 @@ def test_character_names_in_english_prompt_are_allowed():
 def test_korean_appearance_is_violation():
     payload = _payload()
     payload["protagonist"]["appearance"] = "짧은 검은 머리"
-    sb = _StoryboardDraft.model_validate(payload).to_storyboard(4)
+    sb = _StoryboardDraft.model_validate(payload).to_storyboard()
     assert [v.field for v in _english_violations(sb)] == ["지훈.appearance"]

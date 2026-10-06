@@ -23,6 +23,7 @@ from pathlib import Path
 from app.models.video import VideoJobRequest, VideoJobStatus, VideoStage
 from app.videomake.config import Settings, get_settings
 from app.videomake.errors import BudgetExceeded, GuardrailViolation, VideomakeError
+from app.videomake.handoff import diary_text
 from app.videomake.job import JobStore
 from app.videomake.models import DiaryInput
 from app.videomake.pipeline import Pipeline
@@ -34,10 +35,11 @@ _FAILED_DEFAULT = "영상을 만들지 못했어요. 잠시 후 다시 시도해
 
 
 def to_diary_input(req: VideoJobRequest) -> DiaryInput:
-    """Step2 분석 결과 → videomake 입력.
+    """Step2 분석 결과 + 일기 전달 JSON → videomake 입력.
 
     스토리보드 LLM은 emotion을 JSON 그대로 읽으므로 키 이름을 videomake 예시
     (examples/diary.sample.json)와 맞추고, 값이 없는 키는 넣지 않는다.
+    일기 글은 전달 JSON의 정제 일기를 먼저 쓴다 — `text`는 다듬지 않은 대화 원문이다.
     """
     emotion: dict = {}
     if req.emotion_keywords:
@@ -48,7 +50,12 @@ def to_diary_input(req: VideoJobRequest) -> DiaryInput:
         emotion["intensity"] = round(req.emotion_intensity / 100, 2)
     if req.emotion_scores:
         emotion["scores"] = req.emotion_scores
-    return DiaryInput(text=req.text, emotion=emotion, protagonist_name=req.protagonist_name)
+    return DiaryInput(
+        text=diary_text(req.diary_handoff) or req.text,
+        emotion=emotion,
+        protagonist_name=req.protagonist_name,
+        handoff=req.diary_handoff,
+    )
 
 
 @dataclass
@@ -131,13 +138,15 @@ class VideoJobManager:
         비중은 실제 소요 시간 기준이다. Veo 렌더가 대부분을 차지한다.
         """
         job = self._store(job_id)
-        n = self.settings.n_cuts
+        if not job.storyboard_path.exists():
+            return "storyboard", 0.0
+        # 컷 수는 일기마다 스토리보드가 정한다.
+        storyboard = job.load_storyboard()
+        n = len(storyboard.cuts)
 
         def count(path_of) -> int:
             return sum(1 for i in range(1, n + 1) if path_of(i).exists())
 
-        if not job.storyboard_path.exists():
-            return "storyboard", 0.0
         images = count(job.cut_image) + int(job.character_sheet_path.exists())
         if images < n + 1:
             return "images", 0.05 + 0.25 * images / (n + 1)
@@ -145,7 +154,7 @@ class VideoJobManager:
         if videos < n:
             return "videos", 0.30 + 0.60 * videos / n
         # 대사 컷은 Veo가 직접 말하므로 나레이션 파일이 없다.
-        narrated = [c.index for c in job.load_storyboard().cuts if not c.is_dialogue]
+        narrated = [c.index for c in storyboard.cuts if not c.is_dialogue]
         done = sum(1 for i in narrated if job.cut_narration(i).exists())
         if done < len(narrated):
             return "narration", 0.90 + 0.05 * done / len(narrated)

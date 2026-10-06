@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-from .config import NARRATION_MAX_CHARS
+from .config import narration_max_chars
 from .models import Cut, Storyboard, Violation
 
 # --- image_prompt 금지 ------------------------------------------------------
@@ -118,13 +118,14 @@ def lint_motion_prompt(prompt: str) -> list[Violation]:
     return out
 
 
-def lint_narration(text: str, protagonist: str) -> list[Violation]:
+def lint_narration(text: str, protagonist: str, seconds: int = 8) -> list[Violation]:
     out: list[Violation] = []
-    if len(text) > NARRATION_MAX_CHARS:
+    limit = narration_max_chars(seconds)
+    if len(text) > limit:
         out.append(
             Violation(
                 field="narration",
-                rule=f"나레이션 {NARRATION_MAX_CHARS}자 이내",
+                rule=f"{seconds}초 컷 나레이션 {limit}자 이내",
                 detail=f"{len(text)}자. 컷 길이 안에 읽히지 않는다.",
             )
         )
@@ -147,7 +148,7 @@ def lint_cut(cut: Cut, protagonist: str) -> list[Violation]:
     # 1인칭 금지(원칙 3)는 화면 밖 나레이션에만 적용한다. 인물이 대사에서
     # "나"라고 말하는 것은 자연스러운 발화이지 관찰 거리의 붕괴가 아니다.
     if cut.narration is not None:
-        out += lint_narration(cut.narration, protagonist)
+        out += lint_narration(cut.narration, protagonist, cut.duration_seconds)
     return [v.model_copy(update={"field": f"cut{cut.index}.{v.field}"}) for v in out]
 
 

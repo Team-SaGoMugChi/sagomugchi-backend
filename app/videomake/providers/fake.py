@@ -27,12 +27,13 @@ T = TypeVar("T", bound=BaseModel)
 # 호출마다 잠깐 멈춘다. 즉시 끝나면 앱 로딩 화면의 진행률을 확인할 수 없다.
 STEP_DELAY_SECONDS = 0.5
 
+# 4초 컷 상한(14자) 안에 든다.
 _NARRATIONS = [
-    "그는 회의실에 혼자 남아 있었다.",
-    "창밖의 빛이 천천히 기울었다.",
-    "그는 노트를 덮고 숨을 골랐다.",
-    "복도에는 발소리만 남았다.",
-    "그는 가방을 챙겨 자리에서 일어났다.",
+    "회의실에 그만 남았다.",
+    "빛이 천천히 기울었다.",
+    "그는 노트를 덮었다.",
+    "복도에 발소리만 남았다.",
+    "그는 자리에서 일어났다.",
     "문이 조용히 닫혔다.",
 ]
 
@@ -41,8 +42,8 @@ def _ff(args: list[str]) -> None:
     subprocess.run(["ffmpeg", "-y", *args], capture_output=True, check=True)
 
 
-def demo_storyboard_payload(n_cuts: int) -> dict:
-    """연출 원칙(가드레일)을 통과하는 고정 스토리보드. 컷 수는 설정을 따른다."""
+def demo_storyboard_payload(n_cuts: int, seconds: int = 4) -> dict:
+    """연출 원칙(가드레일)을 통과하는 고정 스토리보드. 컷 수·컷 길이는 인자를 따른다."""
     return {
         "protagonist": {
             "name": "지훈",
@@ -66,6 +67,7 @@ def demo_storyboard_payload(n_cuts: int) -> dict:
                 "narration": _NARRATIONS[(i - 1) % len(_NARRATIONS)],
                 "dialogue": [],
                 "camera_distance": "wide",
+                "duration_seconds": seconds,
             }
             for i in range(1, n_cuts + 1)
         ],

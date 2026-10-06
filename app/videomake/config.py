@@ -17,17 +17,33 @@ PACKAGE_ROOT = Path(__file__).resolve().parent
 # 서버 이식 시 프롬프트를 패키지 안으로 옮겼다. 실행 위치와 무관하게 찾는다.
 PROMPTS_DIR = PACKAGE_ROOT / "prompts"
 
-# 8초 안에 편안히 읽히는 한국어 나레이션 길이 상한.
+# Veo가 만들 수 있는 컷 길이(초). 컷마다 LLM이 이 중에서 고른다.
+CUT_DURATIONS = (4, 6, 8)
+CutSeconds = Literal[4, 6, 8]
+
+# 8초 안에 편안히 읽히는 한국어 나레이션 길이 상한. 짧은 컷은 길이에 비례해 줄인다.
 NARRATION_MAX_CHARS = 28
 
 # 대사는 Veo가 직접 발화한다. 스파이크에서 8초에 18자 + 12자가 여유 있게 들어갔고
-# 말 사이 공백까지 필요하므로 총량을 이 선에서 막는다.
+# 말 사이 공백까지 필요하므로 총량을 이 선에서 막는다. 짧은 컷은 길이에 비례해 줄인다.
 DIALOGUE_MAX_CHARS = 40
 DIALOGUE_MAX_LINES = 3
+# 대사 컷은 두 줄 이상 주고받아야 하므로 4초로는 부족하다.
+DIALOGUE_MIN_SECONDS = 6
 
 # 대사가 한 줄뿐이면 8초 중 6초가 빈다. Veo는 그 침묵을 지어낸 잡담으로 메운다
 # (실제로 관측됨). 주고받는 형태로 시간을 채워 그 여지를 없앤다.
 DIALOGUE_MIN_LINES = 2
+
+
+def narration_max_chars(seconds: int) -> int:
+    """컷 길이(초)에 맞는 나레이션 글자 수 상한. 8초 28자 기준 비례(4초 14자, 6초 21자)."""
+    return NARRATION_MAX_CHARS * seconds // 8
+
+
+def dialogue_max_chars(seconds: int) -> int:
+    """컷 길이(초)에 맞는 대사 총 글자 수 상한. 8초 40자 기준 비례(6초 30자)."""
+    return DIALOGUE_MAX_CHARS * seconds // 8
 
 
 class Settings(BaseSettings):
@@ -73,8 +89,12 @@ class Settings(BaseSettings):
     aspect_ratio: Literal["9:16", "16:9"] = "9:16"
     video_resolution: Literal["720p", "1080p"] = "720p"
     image_size: Literal["1K", "2K"] = "1K"
-    cut_duration_seconds: Literal[4, 6, 8] = 8
-    n_cuts: int = 6
+    # 영상 길이는 일기마다 LLM이 정한다(컷 수·컷별 길이). 그 범위만 여기서 막는다.
+    # 짧은 일기에 48초를 고정으로 만들면 생성 시간과 비용이 낭비된다.
+    min_cuts: int = 3
+    max_cuts: int = 10
+    min_total_seconds: int = 12
+    max_total_seconds: int = 40
 
     # Veo는 오디오 생성을 끌 수 없다(Developer API에 generate_audio가 없다).
     # 나레이션 명료도를 위해 기본은 완전 mute.
@@ -101,7 +121,9 @@ class Settings(BaseSettings):
 
     # .env의 값은 전부 문자열로 들어온다. Literal[int]는 자동 변환되지 않으므로
     # 검증 전에 정수로 바꿔준다.
-    @field_validator("cut_duration_seconds", "n_cuts", mode="before")
+    @field_validator(
+        "min_cuts", "max_cuts", "min_total_seconds", "max_total_seconds", mode="before"
+    )
     @classmethod
     def _coerce_int(cls, v: object) -> object:
         return int(v) if isinstance(v, str) and v.strip() else v

@@ -76,7 +76,8 @@ def build_llm(settings: Settings, client: genai.Client) -> LLMProvider:
 
 def build_fake_providers(settings: Settings) -> Providers:
     return Providers(
-        llm=FakeLLM(settings.n_cuts),
+        # 더미는 허용 범위의 가장 짧은 영상(최소 컷 수 × 4초)을 만든다.
+        llm=FakeLLM(settings.min_cuts),
         image=FakeImage(),
         video=FakeVideo(),
         tts=FakeTTS(),

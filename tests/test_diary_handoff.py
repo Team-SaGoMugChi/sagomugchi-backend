@@ -131,8 +131,10 @@ def test_handoff_video_file_rides_along_the_video_job_request(classifier):
     request = VideoJobRequest(text=TRANSCRIPT, emotion_keywords=["상처"], diary_handoff=video)
 
     assert request.diary_handoff == video
-    # 영상 파트가 쓰기 전까지는 스토리보드 입력이 바뀌지 않는다.
-    assert to_diary_input(request) == to_diary_input(VideoJobRequest(text=TRANSCRIPT, emotion_keywords=["상처"]))
+    # 영상 파트가 전달 JSON을 스토리보드 입력으로 받는다. 일기 글은 정제 일기가 있으면 그것을 쓴다.
+    diary = to_diary_input(request)
+    assert diary.handoff == video
+    assert diary.text == (video["diary"]["diary_text"] or TRANSCRIPT)
 
 
 def test_video_job_request_without_handoff_still_works():

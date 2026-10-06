@@ -32,8 +32,8 @@ def _manager(tmp_path, **overrides) -> VideoJobManager:
         _env_file=None,
         dummy=True,
         jobs_dir=tmp_path / "jobs",
-        n_cuts=2,
-        cut_duration_seconds=4,
+        min_cuts=2,
+        min_total_seconds=8,
         poll_interval_seconds=0.0,
         **overrides,
     )
