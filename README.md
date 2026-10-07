@@ -65,7 +65,7 @@ server/
 | POST | `/analyze/face` | 이미지 → 랜드마크 검출 (MediaPipe) | 랜드마크 검출만 실동작, AU/표정 분류는 TODO |
 | POST | `/baseline` | 음성+얼굴 → baseline 프로필 → `users/{uid}/meta/baseline` 저장 | 특징 추출 + Firestore 쓰기 실동작 (서비스 계정 키 필요) |
 | POST | `/diary/step2/analyze` | 음성+얼굴+텍스트 → baseline 대비 Δ + fusion → 감정 키워드/점수 | 계산 실동작, **Firestore 저장은 미연결**(아래 참고) |
-| POST | `/video/jobs` | 일기 원문 + Step2 감정 → Step3 숏폼 생성 작업 등록 (202, `job_id`) | 실동작 (기본 더미 모드, 실제 생성은 Vertex ADC 필요) |
+| POST | `/video/jobs` | 일기 원문 + Step2 감정 + 일기 전달 JSON → Step3 숏폼 생성 작업 등록 (202, `job_id`) | 실동작 (기본 더미 모드, 실제 생성은 Vertex ADC 필요) |
 | GET | `/video/jobs/{job_id}` | 영상 작업 단계·진행률·오류 조회 | 실동작 |
 | GET | `/video/jobs/{job_id}/file` | 완성된 mp4 다운로드 | 실동작 (Storage 업로드는 후속) |
 
@@ -137,10 +137,23 @@ curl -X POST http://localhost:8000/diary/step2/analyze \
 
 ## 영상 생성 (`/video/jobs`, Step3)
 
-`app/videomake/`는 영상 생성 모듈(videomake)을 이식한 것이다. 일기 + 감정 →
-스토리보드(Gemini) → 캐릭터 시트·컷 이미지 → 영상(Veo 3.1 Fast) → 나레이션(TTS) →
-ffmpeg 합성 → `final.mp4`. 연출 원칙(3인칭 관찰 시점, 클로즈업 금지 등)과 비용 가드는
-모듈 안 코드가 강제한다.
+`app/videomake/`는 영상 생성 모듈(videomake)을 이식한 것이다. 일기 + 감정 + 일기 전달 JSON
+(`diary_handoff`) → 스토리보드(GPT) → 캐릭터 시트·장소 시트·컷 이미지 → 영상(Veo 3.1 Fast) →
+나레이션(TTS) → ffmpeg 합성(컷 크로스페이드) → `final.mp4`. 연출 원칙(3인칭 관찰 시점,
+클로즈업 금지 등)과 비용 가드는 모듈 안 코드가 강제한다.
+
+**스토리보드가 정하는 것** (`prompts/storyboard_planner.system.md`, 어기면 `guardrails.py`가
+위반 내역을 붙여 최대 3회 재요청):
+
+| 항목 | 규칙 |
+|---|---|
+| 길이 | 일기 분량에 맞춰 컷 3~10개, 컷마다 4·6·8초(Veo 지원 값), 전체 12~40초. 4초가 기본, 감정 핵심·대사 컷만 6초 이상 |
+| 감정(mood) | 컷마다 기쁨·슬픔·분노·불안·상처·당황·평온 중 하나. 컷 그림의 빛·색감·표정과 낭독 톤이 따라간다(`prompts/mood.j2`) |
+| 목소리 | 나레이션(해요체, 3인칭) / 대사(일기에 실제로 오간 말만, 6초 이상, 2~3줄) / 무음 컷(앞 나레이션이 이어짐). 나레이션 글자 수는 이어지는 구간 길이로 정한다 |
+| 장소 | 장소마다 네 방향 외형을 정의 → 장소 시트(4방향 그림)로 같은 곳을 같은 곳으로, 컷마다 바라보는 쪽을 바꾼다 |
+| 인물 | 화면에 나오는 조연도 캐릭터 시트를 만든다. 컷마다 화면 속 인물과 위치(left/center/right)를 정하고, 대사 컷은 화자를 위치·외모로 Veo에 알린다. 화면 밖 화자(전화 등)는 화면 밖 목소리로 |
+
+나레이션 목소리는 `VIDEOMAKE_TTS_VOICE`(기본 `Leda`)다. 2026-10 목소리 6종 비교로 정했다.
 
 생성에 수 분이 걸리므로 앱은 작업을 등록한 뒤 상태를 폴링한다.
 
@@ -155,7 +168,8 @@ curl http://localhost:8000/video/jobs/<job_id>
 
 - **승인 게이트는 서버가 자동 통과**시킨다(앱 사용자는 컷을 검수하지 않음). 대신
   `VIDEOMAKE_MAX_COST_USD`(기본 $6)를 넘는 작업은 렌더하지 않고 `failed`가 된다.
-  기본 설정(6컷×8초, Veo Fast 720p)은 작업당 약 $5다.
+  Veo Fast 720p 기준 짧은 일기(3컷 15초) 약 $1.8, 긴 일기(7~8컷 34초) 약 $4다.
+- 생성 시간은 5~12분이다. 대부분 그림 모델 대기(rate limit)라서 그림 수(컷 + 시트)에 비례한다.
 - 작업 상태는 메모리에만 있다. 서버를 재시작하면 진행 중이던 작업은 사라진다.
 - 생성물은 `.cache/videomake/jobs/<job_id>/`에 남는다(커밋 안 됨).
 
@@ -177,6 +191,22 @@ curl http://localhost:8000/video/jobs/<job_id>
 **더미 모드 (GCP 없이):** `.env`에 `VIDEOMAKE_DUMMY=true`. 모델을 부르지 않고 ffmpeg로
 회색 이미지·단색 영상·무음 나레이션을 만들어 같은 흐름을 끝까지 돈다. 과금 0이고, 앱
 Step3 화면의 진행률·재생을 확인할 때 쓴다. `ffmpeg`는 필요하다.
+
+### 같은 일기로 영상만 다시 돌리기 (`scripts/video_replay.py`)
+
+연출 로직을 고친 뒤 앱에서 일기를 새로 쓰지 않고, 이미 만든 영상 작업의 입력(`input.json`)을
+그대로 넣어 결과를 비교한다. `.env`의 `VIDEOMAKE_DUMMY`와 상관없이 스토리보드는 항상 실제 LLM이다.
+
+```bash
+.venv/bin/python -m scripts.video_replay --list                       # 최근 작업(작업 ID)
+.venv/bin/python -m scripts.video_replay <작업ID>                     # 시나리오만 (약 1센트)
+.venv/bin/python -m scripts.video_replay <작업ID> --until images      # 그림까지 (review.html)
+.venv/bin/python -m scripts.video_replay <작업ID> --until video --media dummy   # 그림·영상은 더미
+.venv/bin/python -m scripts.video_replay <작업ID> --until video --save-to ~/Desktop/테스트영상  # 실제 (렌더 전 비용 확인)
+.venv/bin/python -m scripts.video_replay <이전 replay 작업ID> --resume --until video  # 그림까지 만든 작업 이어서
+```
+
+결과는 `.cache/videomake/jobs/replay-…`에 쌓인다. 일기가 들어 있으므로 커밋하지 않는다.
 
 ## 텍스트 감정분류 (KOTE)
 
