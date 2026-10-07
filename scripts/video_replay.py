@@ -130,6 +130,8 @@ def save_copy(sb: Storyboard, job: JobStore, folder: Path) -> Path:
     dest = folder / f"{stem}.mp4"
     shutil.copy2(job.final_path, dest)
     (folder / f"{stem}.txt").write_text(summary(sb, job) + "\n", encoding="utf-8")
+    if job.thumbnail_path.exists():
+        shutil.copy2(job.thumbnail_path, folder / f"{stem}_썸네일.jpg")
     return dest
 
 

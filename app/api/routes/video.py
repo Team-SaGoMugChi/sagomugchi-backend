@@ -43,3 +43,17 @@ def get_video_file(
             detail={"code": "video_not_ready", "message": "영상이 아직 준비되지 않았어요."},
         )
     return FileResponse(path, media_type="video/mp4", filename=f"{job_id}.mp4")
+
+
+@router.get("/jobs/{job_id}/thumbnail")
+def get_video_thumbnail(
+    job_id: str, jobs: VideoJobManager = Depends(get_video_jobs)
+) -> FileResponse:
+    """대표 장면 가로(16:9) 썸네일 — 앱 홈 영상 카드에 쓴다."""
+    path = jobs.thumbnail_path(job_id)
+    if path is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "thumbnail_not_ready", "message": "썸네일이 아직 준비되지 않았어요."},
+        )
+    return FileResponse(path, media_type="image/jpeg", filename=f"{job_id}.jpg")

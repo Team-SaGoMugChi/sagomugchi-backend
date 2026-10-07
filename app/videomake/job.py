@@ -74,6 +74,11 @@ class JobStore:
     def final_path(self) -> Path:
         return self.dir / "final.mp4"
 
+    @property
+    def thumbnail_path(self) -> Path:
+        """대표 장면 가로 썸네일(앱 홈 카드용)."""
+        return self.dir / "thumbnail.jpg"
+
     def cut_dir(self, index: int) -> Path:
         d = self.dir / "cuts" / f"{index:02d}"
         d.mkdir(parents=True, exist_ok=True)

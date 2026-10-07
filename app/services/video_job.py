@@ -113,6 +113,7 @@ class VideoJobManager:
         stage, progress = self._progress(job_id)
         if state.status == "done":
             stage, progress = "done", 1.0
+        has_thumbnail = self.thumbnail_path(job_id) is not None
         return VideoJobStatus(
             job_id=job_id,
             status=state.status,
@@ -120,6 +121,7 @@ class VideoJobManager:
             progress=progress,
             error=state.error,
             video_url=f"/video/jobs/{job_id}/file" if state.status == "done" else None,
+            thumbnail_url=f"/video/jobs/{job_id}/thumbnail" if has_thumbnail else None,
         )
 
     def final_path(self, job_id: str) -> Path | None:
@@ -127,6 +129,13 @@ class VideoJobManager:
         if state is None or state.status != "done":
             return None
         path = self._store(job_id).final_path
+        return path if path.exists() else None
+
+    def thumbnail_path(self, job_id: str) -> Path | None:
+        state = self._jobs.get(job_id)
+        if state is None or state.status != "done":
+            return None
+        path = self._store(job_id).thumbnail_path
         return path if path.exists() else None
 
     def _store(self, job_id: str) -> JobStore:

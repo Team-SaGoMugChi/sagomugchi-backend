@@ -36,8 +36,15 @@ Third-person observational {{ camera_distance }} shot. The camera is a detached
 outside observer and never takes the character's point of view.
 Keep clear physical distance from the character. No close-up of the face,
 no extreme close-up, no POV, no over-shoulder subjective framing.
+{% if thumbnail -%}
+This frame is a thumbnail shown on a small card. Recompose the SCENE for a landscape frame:
+the character(s) are the clear subject and fill about half of the frame height or more,
+with only enough surroundings to recognize the place. Their face and expression must be readable.
+Still no close-up of a face filling the frame.
+{% else -%}
 The character occupies a modest portion of the frame with visible surrounding space.
-Vertical {{ aspect_ratio }} composition.
+{% endif -%}
+{{ 'Vertical' if aspect_ratio == '9:16' else 'Horizontal' }} {{ aspect_ratio }} composition.
 
 MOOD:
 {{ mood_block }}
