@@ -53,6 +53,15 @@ def demo_storyboard_payload(n_cuts: int, seconds: int = 4) -> dict:
             ),
         },
         "distortions": [],
+        "locations": [
+            {
+                "name": "회의실",
+                "description": (
+                    "A small office meeting room with grey carpet, white walls, a long light-wood "
+                    "table with eight black chairs, and vertical blinds on the left wall windows."
+                ),
+            }
+        ],
         "cuts": [
             {
                 "index": i,
@@ -69,6 +78,7 @@ def demo_storyboard_payload(n_cuts: int, seconds: int = 4) -> dict:
                 "camera_distance": "wide",
                 "duration_seconds": seconds,
                 "mood": "평온",
+                "location": "회의실",
             }
             for i in range(1, n_cuts + 1)
         ],

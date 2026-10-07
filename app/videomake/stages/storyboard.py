@@ -34,6 +34,7 @@ from ..models import (
     CutMood,
     DiaryInput,
     Distortion,
+    LocationProfile,
     Line,
     Stage,
     Storyboard,
@@ -85,12 +86,15 @@ class _CutDraft(BaseModel):
     duration_seconds: CutSeconds
     # 그 컷이 담은 장면의 감정. 빛·색감·표정이 따라간다.
     mood: CutMood
+    # locations에 정의한 장소 이름. 같은 장소의 컷은 같은 곳으로 그려진다.
+    location: str
 
 
 class _StoryboardDraft(BaseModel):
     protagonist: CharacterProfile
     supporting: list[CharacterProfile] = Field(default_factory=list)
     distortions: list[Distortion] = Field(default_factory=list)
+    locations: list[LocationProfile]
     cuts: list[_CutDraft]
 
     def cut_errors(self) -> list[str]:
@@ -152,6 +156,7 @@ class _StoryboardDraft(BaseModel):
             camera_distance=c.camera_distance,
             duration_seconds=c.duration_seconds,
             mood=c.mood,
+            location=c.location,
         )
 
     def to_storyboard(self) -> Storyboard:
@@ -159,6 +164,7 @@ class _StoryboardDraft(BaseModel):
             protagonist=self.protagonist,
             supporting=self.supporting,
             distortions=self.distortions,
+            locations=self.locations,
             cuts=[
                 self._build_cut(c, pos)
                 for pos, c in enumerate(self.cuts, start=1)

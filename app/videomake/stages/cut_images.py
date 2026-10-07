@@ -33,6 +33,12 @@ async def generate_cut_images(
 ) -> dict[int, Path]:
     targets = [c for c in sb.cuts if only is None or c.index in only]
     sem = asyncio.Semaphore(settings.image_concurrency)
+    # 장소마다 처음 나오는 컷. 이 컷을 먼저 그리고, 같은 장소의 나머지 컷은 이 그림을
+    # 장소 기준으로 받는다. 컷마다 따로 그리면 같은 강의실이 매번 다른 방이 된다.
+    anchors: dict[str, int] = {}
+    for c in sb.cuts:
+        if c.location is not None:
+            anchors.setdefault(c.location, c.index)
     started = time.perf_counter()
 
     async def one(cut) -> tuple[int, Path]:
@@ -40,8 +46,17 @@ async def generate_cut_images(
         if dest.exists() and not force:
             log.info("컷 %d 이미지 캐시 재사용", cut.index)
             return cut.index, dest
+        # 같은 장소의 첫 컷 그림을 장소 기준으로 함께 넘긴다(그 컷 자신은 제외).
+        anchor = anchors.get(cut.location)
+        place_ref = (
+            job.cut_image(anchor)
+            if anchor is not None and anchor != cut.index and job.cut_image(anchor).exists()
+            else None
+        )
         prompt = prompts.render(
             "cut_image.j2",
+            location=sb.location(cut.location),
+            same_place=place_ref is not None,
             name=sb.protagonist.name,
             image_prompt=cut.image_prompt,
             camera_distance=cut.camera_distance,
@@ -55,7 +70,7 @@ async def generate_cut_images(
             result = await image.generate(
                 prompt=prompt,
                 dest=dest,
-                references=[sheet],
+                references=[sheet, place_ref] if place_ref else [sheet],
                 aspect_ratio=settings.aspect_ratio,
                 image_size=settings.image_size,
             )
@@ -65,7 +80,10 @@ async def generate_cut_images(
         job.unapprove({cut.index})
         return cut.index, dest
 
-    pairs = await asyncio.gather(*(one(c) for c in targets))
+    first = [c for c in targets if anchors.get(c.location) in (None, c.index)]
+    rest = [c for c in targets if c not in first]
+    pairs = await asyncio.gather(*(one(c) for c in first))
+    pairs += await asyncio.gather(*(one(c) for c in rest))
     job.record_stage(
         Stage.CUT_IMAGES,
         elapsed_s=time.perf_counter() - started,

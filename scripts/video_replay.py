@@ -88,7 +88,7 @@ def summary(sb: Storyboard, job: JobStore) -> str:
     ]
     for c in sb.cuts:
         voice = c.narration or " / ".join(f"{line.speaker}: {line.text}" for line in c.dialogue)
-        lines.append(f"  {c.index:>2}. {c.duration_seconds}초 {c.mood} {c.camera_distance:<6} | {voice}")
+        lines.append(f"  {c.index:>2}. {c.duration_seconds}초 {c.mood} {c.location or '-'} {c.camera_distance:<6} | {voice}")
     for d in sb.distortions:
         lines.append(f"  인지왜곡: {d.fact} → {d.felt_as} ({d.kind})")
     lines.append(f"지금까지 비용: ${job.spent_usd():.3f}")

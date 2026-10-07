@@ -1,12 +1,20 @@
 Generate a single still frame for an animated short.
 
-The attached image is the character reference sheet for {{ name }}.
+The {% if same_place %}first {% endif %}attached image is the character reference sheet for {{ name }}.
 Reproduce {{ name }} with exactly the same face, hair, body proportions, clothing
 and colors as the reference. Do not redesign the character.
 
 SCENE:
 {{ image_prompt }}
-
+{% if location %}
+PLACE:
+{{ location.description }}
+{% if same_place -%}
+The second attached image shows this same place earlier in the day. It is the same room:
+keep the same layout, floor, walls, windows, furniture and colors exactly. Only the
+lighting, the camera angle and the character's position may differ.
+{% endif -%}
+{% endif %}
 FRAMING:
 Third-person observational {{ camera_distance }} shot. The camera is a detached
 outside observer and never takes the character's point of view.

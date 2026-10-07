@@ -227,6 +227,8 @@ def lint_storyboard(sb: Storyboard) -> list[Violation]:
     for c in sb.characters:
         out += lint_english(c.appearance, f"{c.name}.appearance", names)
         out += lint_english(c.voice, f"{c.name}.voice", names)
+    for loc in sb.locations:
+        out += lint_english(loc.description, f"{loc.name}.description", names)
     for cut in sb.cuts:
         out += lint_cut(cut, sb.protagonist.name)
         out += lint_english(cut.image_prompt, f"cut{cut.index}.image_prompt", names)

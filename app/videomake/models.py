@@ -69,6 +69,22 @@ class CharacterProfile(BaseModel):
     )
 
 
+class LocationProfile(BaseModel):
+    """job 내내 고정되는 장소 정의. 같은 장소의 컷 그림이 같은 곳으로 보이게 하는 기준.
+
+    컷 그림은 컷마다 따로 그리므로, 장소를 컷마다 다르게 설명하면 같은 강의실이 매번
+    다른 방으로 그려진다(실제로 관측됨). 인물처럼 한 번 정의하고 모든 컷에 그대로 넣는다.
+    """
+
+    name: str = Field(description="장소 이름(한국어, 짧게). 컷의 location과 정확히 같아야 한다.")
+    description: str = Field(
+        description=(
+            "장소 외형 서술(영어). 바닥·벽·창의 위치·가구 종류와 배치·주요 색·조명 기구. "
+            "시간대·빛·인물은 쓰지 않는다. 그 장소의 모든 컷 그림 프롬프트에 그대로 들어간다."
+        )
+    )
+
+
 class Distortion(BaseModel):
     """인지왜곡. 사실과 '느껴진 것'을 구조적으로 분리한다. (연출 원칙 6)"""
 
@@ -97,6 +113,8 @@ class Cut(BaseModel):
     camera_distance: CameraDistance = "full"
     duration_seconds: CutSeconds = 8
     mood: CutMood = "평온"
+    # 스토리보드 locations의 name. 없으면 image_prompt만으로 장소를 그린다.
+    location: str | None = None
 
     @property
     def is_dialogue(self) -> bool:
@@ -158,6 +176,7 @@ class Storyboard(BaseModel):
     # 대사 컷에 등장하는 상대역. 캐릭터 시트는 주인공만 만든다.
     supporting: list[CharacterProfile] = Field(default_factory=list)
     distortions: list[Distortion] = Field(default_factory=list)
+    locations: list[LocationProfile] = Field(default_factory=list)
     cuts: list[Cut]
 
     @property
@@ -185,6 +204,24 @@ class Storyboard(BaseModel):
                         f"정의된 인물: {sorted(known)}"
                     )
         return self
+
+    @model_validator(mode="after")
+    def _locations_are_defined(self) -> Storyboard:
+        """컷의 장소는 정의된 장소여야 한다. 이름이 어긋나면 장소 설명을 못 찾는다."""
+        known = {loc.name for loc in self.locations}
+        for cut in self.cuts:
+            if cut.location is not None and cut.location not in known:
+                raise ValueError(
+                    f"컷 {cut.index}의 장소 '{cut.location}'가 장소 목록에 없다. "
+                    f"정의된 장소: {sorted(known)}"
+                )
+        return self
+
+    def location(self, name: str | None) -> LocationProfile | None:
+        for loc in self.locations:
+            if loc.name == name:
+                return loc
+        return None
 
     def cut(self, index: int) -> Cut:
         for c in self.cuts:
