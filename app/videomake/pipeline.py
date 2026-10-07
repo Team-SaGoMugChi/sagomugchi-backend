@@ -6,6 +6,7 @@ provider / JobStore / Settings를 주입받는다. CLI는 이 위에 얹힌 얇�
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 from decimal import Decimal
@@ -24,6 +25,7 @@ from .stages.narration import synthesize_narrations
 from .stages.reference_sheets import build_reference_sheets
 from .stages.review import build_review
 from .stages.storyboard import plan_storyboard
+from .stages.thumbnail import build_thumbnail
 from .stages.video_render import render_cut_videos
 
 log = logging.getLogger(__name__)
@@ -177,10 +179,45 @@ class Pipeline:
         confirm: Callable[[CostEstimate, Decimal], bool] | None = None,
         force: bool = False,
     ) -> Path:
-        """승인된 컷 → 영상 → 나레이션 → final.mp4. 비싼 구간."""
-        await self.render(sb, force=force, confirm=confirm)
+        """승인된 컷 → 영상 → 나레이션 → final.mp4. 비싼 구간.
+
+        대표 장면 썸네일은 영상 렌더와 동시에 그린다(기다리는 시간이 늘지 않는다).
+        썸네일이 실패해도 영상은 완성한다 — 앱은 썸네일 없이도 영상을 보여준다.
+        """
+        thumbnail = asyncio.create_task(self.thumbnail(sb, force=force))
+        try:
+            await self.render(sb, force=force, confirm=confirm)
+        except BaseException:
+            thumbnail.cancel()
+            raise
         await self.narrate(sb, force=force)
-        return self.compose(sb)
+        final = self.compose(sb)
+        try:
+            await thumbnail
+        except Exception:
+            log.exception("썸네일 생성 실패 — 영상은 그대로 완성")
+        return final
+
+    async def thumbnail(self, sb: Storyboard, *, force: bool = False) -> Path:
+        """대표 장면을 가로(16:9)로 한 장 그린다(stages/thumbnail.py)."""
+        primary = None
+        if self.job.input_path.exists():
+            diary = DiaryInput.model_validate_json(self.job.input_path.read_text(encoding="utf-8"))
+            primary = diary.emotion.get("primary")
+        character_sheets, location_sheets = await build_reference_sheets(
+            sb, image=self.p.image, prompts=self.prompts, settings=self.settings, job=self.job
+        )
+        return await build_thumbnail(
+            sb,
+            primary_emotion=primary,
+            sheets={sb.protagonist.name: self.job.character_sheet_path, **character_sheets},
+            location_sheets=location_sheets,
+            image=self.p.image,
+            prompts=self.prompts,
+            settings=self.settings,
+            job=self.job,
+            force=force,
+        )
 
     def compose(self, sb: Storyboard, narrations: dict[int, Path] | None = None) -> Path:
         if narrations is None:

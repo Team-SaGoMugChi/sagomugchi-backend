@@ -16,7 +16,7 @@ from pathlib import Path
 
 from ..config import Settings
 from ..job import JobStore
-from ..models import Stage, Storyboard
+from ..models import Cut, Stage, Storyboard
 from ..prompts import PromptLibrary
 from ..providers.base import ImageProvider
 
@@ -50,23 +50,13 @@ async def generate_cut_images(
         if dest.exists() and not force:
             log.info("컷 %d 이미지 캐시 재사용", cut.index)
             return cut.index, dest
-        cast = sorted(sb.visible_cast(cut), key=lambda m: _POSITION_ORDER[m.position])
-        people = [m for m in cast if m.name in sheets]
-        place_sheet = location_sheets.get(cut.location)
-        references = [sheets[m.name] for m in people] + ([place_sheet] if place_sheet else [])
-        prompt = prompts.render(
-            "cut_image.j2",
-            people=people,
-            cast=cast,
-            location=sb.location(cut.location),
-            has_location_sheet=place_sheet is not None,
-            image_prompt=cut.image_prompt,
-            camera_distance=cut.camera_distance,
+        prompt, references = cut_image_request(
+            sb,
+            cut,
+            sheets=sheets,
+            location_sheets=location_sheets,
+            prompts=prompts,
             aspect_ratio=settings.aspect_ratio,
-            style_block=prompts.style_block,
-            mood_block=prompts.render(
-                "mood.j2", mood=cut.mood, name=sb.protagonist.name, part="image"
-            ),
         )
         async with sem:
             result = await image.generate(
@@ -89,3 +79,40 @@ async def generate_cut_images(
         cuts=[i for i, _ in pairs],
     )
     return dict(pairs)
+
+
+def cut_image_request(
+    sb: Storyboard,
+    cut: Cut,
+    *,
+    sheets: dict[str, Path],
+    location_sheets: dict[str, Path],
+    prompts: PromptLibrary,
+    aspect_ratio: str,
+    camera_distance: str | None = None,
+    thumbnail: bool = False,
+) -> tuple[str, list[Path]]:
+    """컷 하나를 그릴 프롬프트와 레퍼런스(화면 속 인물 시트 → 장소 시트).
+
+    컷 그림과 썸네일(가로 구도)이 같은 규칙으로 그려지도록 한곳에 둔다.
+    """
+    cast = sorted(sb.visible_cast(cut), key=lambda m: _POSITION_ORDER[m.position])
+    people = [m for m in cast if m.name in sheets]
+    place_sheet = location_sheets.get(cut.location)
+    references = [sheets[m.name] for m in people] + ([place_sheet] if place_sheet else [])
+    prompt = prompts.render(
+        "cut_image.j2",
+        people=people,
+        cast=cast,
+        location=sb.location(cut.location),
+        has_location_sheet=place_sheet is not None,
+        thumbnail=thumbnail,
+        image_prompt=cut.image_prompt,
+        camera_distance=camera_distance or cut.camera_distance,
+        aspect_ratio=aspect_ratio,
+        style_block=prompts.style_block,
+        mood_block=prompts.render(
+            "mood.j2", mood=cut.mood, name=sb.protagonist.name, part="image"
+        ),
+    )
+    return prompt, references
