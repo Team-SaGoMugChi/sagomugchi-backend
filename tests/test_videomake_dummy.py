@@ -9,7 +9,7 @@ import subprocess
 
 import pytest
 
-from app.videomake.config import Settings
+from app.videomake.config import CROSSFADE_SECONDS, Settings
 from app.videomake.errors import ConfigError
 from app.videomake.job import JobStore
 from app.videomake.models import DiaryInput
@@ -76,7 +76,8 @@ def test_dummy_pipeline_produces_final_mp4(tmp_path, n_cuts):
     final = asyncio.run(run())
 
     assert final.exists()
-    assert abs(_duration(final) - 4 * n_cuts) < 0.5
+    # 컷 사이가 크로스페이드로 겹친 만큼 짧아진다.
+    assert abs(_duration(final) - (4 * n_cuts - CROSSFADE_SECONDS * (n_cuts - 1))) < 0.2
 
 
 def test_default_is_dummy_mode(monkeypatch):

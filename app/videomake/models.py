@@ -15,16 +15,24 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from .config import (
+    CROSSFADE_SECONDS,
     DIALOGUE_MAX_LINES,
     DIALOGUE_MIN_LINES,
     DIALOGUE_MIN_SECONDS,
     CutSeconds,
     dialogue_max_chars,
-    narration_max_chars,
 )
 
 # 클로즈업 계열이 아예 표현 불가능하도록 세 값만 허용한다. (연출 원칙 2)
 CameraDistance = Literal["wide", "full", "medium"]
+
+# 컷 감정. 감정 분석 6종 + 감정이 두드러지지 않는 "평온". 컷 그림의 빛·색감·표정과
+# 영상의 분위기가 이 값을 따른다(prompts/mood.j2). 일기 장면의 감정이 영상에 드러나게 한다.
+CutMood = Literal["기쁨", "슬픔", "분노", "불안", "상처", "당황", "평온"]
+
+# 화면 속 인물 위치. 그림에서 인물을 그 자리에 두고, 대사 컷에서 Veo에게 "누가" 말하는지를
+# 이름이 아니라 위치와 외모로 알려준다(Veo는 이름만으로 누가 누구인지 모른다).
+ScreenPosition = Literal["left", "center", "right"]
 
 
 class Stage(str, Enum):
@@ -65,6 +73,29 @@ class CharacterProfile(BaseModel):
     )
 
 
+class LocationProfile(BaseModel):
+    """job 내내 고정되는 장소 정의. 같은 장소의 컷 그림이 같은 곳으로 보이게 하는 기준.
+
+    컷 그림은 컷마다 따로 그리므로, 장소를 컷마다 다르게 설명하면 같은 강의실이 매번
+    다른 방으로 그려진다(실제로 관측됨). 인물처럼 한 번 정의하고 모든 컷에 그대로 넣는다.
+    """
+
+    name: str = Field(description="장소 이름(한국어, 짧게). 컷의 location과 정확히 같아야 한다.")
+    description: str = Field(
+        description=(
+            "장소 외형 서술(영어). 바닥·벽·창의 위치·가구 종류와 배치·주요 색·조명 기구. "
+            "시간대·빛·인물은 쓰지 않는다. 그 장소의 모든 컷 그림 프롬프트에 그대로 들어간다."
+        )
+    )
+
+
+class CastMember(BaseModel):
+    """컷 화면에 보이는 이름 있는 인물과 그 위치."""
+
+    name: str = Field(description="protagonist나 supporting에 정의된 이름")
+    position: ScreenPosition = Field(description="화면 속 위치: left / center / right")
+
+
 class Distortion(BaseModel):
     """인지왜곡. 사실과 '느껴진 것'을 구조적으로 분리한다. (연출 원칙 6)"""
 
@@ -92,35 +123,35 @@ class Cut(BaseModel):
     )
     camera_distance: CameraDistance = "full"
     duration_seconds: CutSeconds = 8
+    mood: CutMood = "평온"
+    # 스토리보드 locations의 name. 없으면 image_prompt만으로 장소를 그린다.
+    location: str | None = None
+    # 화면에 보이는 인물. 비어 있으면(옛 스토리보드) 주인공만 보인다고 본다.
+    # 전화 속 목소리처럼 화면에 없는 화자는 넣지 않는다.
+    cast: list[CastMember] = Field(default_factory=list)
 
     @property
     def is_dialogue(self) -> bool:
         return bool(self.dialogue)
 
-    @model_validator(mode="after")
-    def _narration_fits_in_cut(self) -> Cut:
-        limit = narration_max_chars(self.duration_seconds)
-        if self.narration is not None and len(self.narration) > limit:
-            raise ValueError(
-                f"나레이션이 {len(self.narration)}자로 {self.duration_seconds}초 컷 상한 "
-                f"{limit}자를 넘는다. 컷 길이 안에 읽히지 않는다."
-            )
-        return self
+    @property
+    def is_silent(self) -> bool:
+        """나레이션도 대사도 없이 화면만 보여주는 컷. 앞 컷의 나레이션이 이어서 깔릴 수 있다."""
+        return not self.narration and not self.dialogue
 
     @model_validator(mode="after")
-    def _exactly_one_voice_track(self) -> Cut:
+    def _at_most_one_voice_track(self) -> Cut:
         """나레이션과 대사를 한 컷에 같이 넣지 않는다.
 
-        8초 안에 둘 다 넣으면 서로 묻힌다. 관찰자 목소리와 인물 목소리가 겹치면
-        거리두기 구조도 무너진다. 컷마다 둘 중 하나만 고른다.
+        둘 다 넣으면 서로 묻힌다. 관찰자 목소리와 인물 목소리가 겹치면 거리두기
+        구조도 무너진다. 둘 다 없는 컷(무음 컷)은 된다 — 나레이션 글자 수는 컷이 아니라
+        나레이션이 이어지는 구간으로 검사한다(narration_windows).
         """
         has_narration = bool(self.narration and self.narration.strip())
         if has_narration and self.dialogue:
             raise ValueError(
                 "한 컷에 나레이션과 대사를 함께 넣을 수 없다. 둘 중 하나만 쓴다."
             )
-        if not has_narration and not self.dialogue:
-            raise ValueError("컷에는 나레이션이나 대사 중 하나가 반드시 있어야 한다.")
 
         if self.dialogue and len(self.dialogue) < DIALOGUE_MIN_LINES:
             raise ValueError(
@@ -153,6 +184,7 @@ class Storyboard(BaseModel):
     # 대사 컷에 등장하는 상대역. 캐릭터 시트는 주인공만 만든다.
     supporting: list[CharacterProfile] = Field(default_factory=list)
     distortions: list[Distortion] = Field(default_factory=list)
+    locations: list[LocationProfile] = Field(default_factory=list)
     cuts: list[Cut]
 
     @property
@@ -181,6 +213,49 @@ class Storyboard(BaseModel):
                     )
         return self
 
+    @model_validator(mode="after")
+    def _cast_is_defined(self) -> Storyboard:
+        """화면 속 인물은 정의된 인물이어야 하고, 한 컷에 같은 사람이 두 번 나오지 않는다."""
+        known = {c.name for c in self.characters}
+        for cut in self.cuts:
+            names = [m.name for m in cut.cast]
+            unknown = [n for n in names if n not in known]
+            if unknown:
+                raise ValueError(
+                    f"컷 {cut.index}의 인물 {unknown}이 인물 목록에 없다. 정의된 인물: {sorted(known)}"
+                )
+            if len(names) != len(set(names)):
+                raise ValueError(f"컷 {cut.index}의 cast에 같은 인물이 두 번 있다.")
+        return self
+
+    def visible_cast(self, cut: Cut) -> list[CastMember]:
+        """그 컷 화면에 보이는 인물. cast가 비어 있으면 주인공 혼자 가운데에 있다고 본다."""
+        return cut.cast or [CastMember(name=self.protagonist.name, position="center")]
+
+    @property
+    def on_screen_supporting(self) -> list[CharacterProfile]:
+        """한 번이라도 화면에 나오는 조연 — 캐릭터 시트를 만든다(전화 속 목소리 등은 제외)."""
+        shown = {m.name for c in self.cuts for m in c.cast}
+        return [c for c in self.supporting if c.name in shown]
+
+    @model_validator(mode="after")
+    def _locations_are_defined(self) -> Storyboard:
+        """컷의 장소는 정의된 장소여야 한다. 이름이 어긋나면 장소 설명을 못 찾는다."""
+        known = {loc.name for loc in self.locations}
+        for cut in self.cuts:
+            if cut.location is not None and cut.location not in known:
+                raise ValueError(
+                    f"컷 {cut.index}의 장소 '{cut.location}'가 장소 목록에 없다. "
+                    f"정의된 장소: {sorted(known)}"
+                )
+        return self
+
+    def location(self, name: str | None) -> LocationProfile | None:
+        for loc in self.locations:
+            if loc.name == name:
+                return loc
+        return None
+
     def cut(self, index: int) -> Cut:
         for c in self.cuts:
             if c.index == index:
@@ -190,6 +265,39 @@ class Storyboard(BaseModel):
     @property
     def total_seconds(self) -> int:
         return sum(c.duration_seconds for c in self.cuts)
+
+    @property
+    def final_seconds(self) -> float:
+        """컷 사이 크로스페이드로 겹친 만큼 뺀 실제 영상 길이."""
+        return self.total_seconds - CROSSFADE_SECONDS * max(len(self.cuts) - 1, 0)
+
+    def narration_windows(self) -> dict[int, float]:
+        """나레이션이 있는 컷 → 그 나레이션이 읽힐 수 있는 시간(초).
+
+        나레이션은 뒤따르는 무음 컷까지 이어서 깔린다. 다음에 나레이션이나 대사가 있는
+        컷이 나오면 거기서 끝난다 — 대사와 겹치지 않는다. 컷이 겹치는 크로스페이드만큼 뺀다.
+        """
+        return narration_windows(
+            [(c.duration_seconds, bool(c.narration), bool(c.dialogue)) for c in self.cuts],
+            [c.index for c in self.cuts],
+        )
+
+
+def narration_windows(
+    cuts: list[tuple[int, bool, bool]], indexes: list[int]
+) -> dict[int, float]:
+    """(컷 길이, 나레이션 여부, 대사 여부) 목록 → {나레이션 컷 번호: 읽힐 수 있는 시간}."""
+    windows: dict[int, float] = {}
+    for pos, (seconds, narrated, _) in enumerate(cuts):
+        if not narrated:
+            continue
+        span = [seconds]
+        for nxt_seconds, nxt_narrated, nxt_dialogue in cuts[pos + 1 :]:
+            if nxt_narrated or nxt_dialogue:
+                break
+            span.append(nxt_seconds)
+        windows[indexes[pos]] = sum(span) - CROSSFADE_SECONDS * len(span)
+    return windows
 
 
 # --- 가드레일 ---------------------------------------------------------------

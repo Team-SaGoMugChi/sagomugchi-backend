@@ -58,6 +58,14 @@ class JobStore:
     def character_sheet_path(self) -> Path:
         return self.dir / "character_sheet.png"
 
+    def supporting_sheet(self, index: int) -> Path:
+        """조연 캐릭터 시트(supporting 목록 순서, 1부터)."""
+        return self.dir / "sheets" / f"character_{index:02d}.png"
+
+    def location_sheet(self, index: int) -> Path:
+        """장소 시트 — 같은 장소를 여러 방향에서 본 그림(locations 목록 순서, 1부터)."""
+        return self.dir / "sheets" / f"location_{index:02d}.png"
+
     @property
     def review_path(self) -> Path:
         return self.dir / "review.html"

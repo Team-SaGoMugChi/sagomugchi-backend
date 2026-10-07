@@ -21,8 +21,20 @@ PROMPTS_DIR = PACKAGE_ROOT / "prompts"
 CUT_DURATIONS = (4, 6, 8)
 CutSeconds = Literal[4, 6, 8]
 
-# 8초 안에 편안히 읽히는 한국어 나레이션 길이 상한. 짧은 컷은 길이에 비례해 줄인다.
-NARRATION_MAX_CHARS = 28
+# 나레이션 낭독 속도(초당 글자 수, 공백 포함). "보통 대화 속도" 낭독 지시로 목소리 6종을
+# 재보니 초당 5.0~6.1자였다(2026-10). 가장 느린 값을 써서 어떤 목소리도 컷 안에 끝나게 한다.
+NARRATION_CHARS_PER_SECOND = 5
+# 컷 시작 0.4초 뒤에 목소리가 들어오고(compose.NARRATION_DELAY_MS) 끝에 숨 쉴 틈을 남긴다.
+NARRATION_MARGIN_SECONDS = 0.8
+
+# 컷과 컷 사이를 겹쳐 넘기는 시간(초). 짧은 컷이 툭툭 끊겨 보이지 않게 한다.
+# 컷이 겹치는 만큼 영상 전체가 짧아지므로 나레이션 글자 수 계산에도 들어간다.
+CROSSFADE_SECONDS = 0.3
+
+# 나레이션도 대사도 없는 컷(화면만 보여주는 컷)은 이 길이만 쓴다. 릴스처럼 짧게 넘어간다.
+SILENT_CUT_SECONDS = 4
+# 무음 컷이 이보다 많이 이어지면 이야기가 끊긴다.
+MAX_SILENT_RUN = 2
 
 # 대사는 Veo가 직접 발화한다. 스파이크에서 8초에 18자 + 12자가 여유 있게 들어갔고
 # 말 사이 공백까지 필요하므로 총량을 이 선에서 막는다. 짧은 컷은 길이에 비례해 줄인다.
@@ -36,9 +48,15 @@ DIALOGUE_MIN_SECONDS = 6
 DIALOGUE_MIN_LINES = 2
 
 
+def narration_chars_for_window(window: float) -> int:
+    """나레이션이 읽힐 수 있는 시간(초)에 들어가는 글자 수."""
+    return max(0, int(NARRATION_CHARS_PER_SECOND * (window - NARRATION_MARGIN_SECONDS)))
+
+
 def narration_max_chars(seconds: int) -> int:
-    """컷 길이(초)에 맞는 나레이션 글자 수 상한. 8초 28자 기준 비례(4초 14자, 6초 21자)."""
-    return NARRATION_MAX_CHARS * seconds // 8
+    """무음 컷이 뒤따르지 않는 컷 하나의 나레이션 글자 수 상한(4초 14자, 6초 24자, 8초 34자).
+    다음 컷과 겹치는 시간(크로스페이드)만큼 빠진다."""
+    return narration_chars_for_window(seconds - CROSSFADE_SECONDS)
 
 
 def dialogue_max_chars(seconds: int) -> int:
@@ -83,7 +101,9 @@ class Settings(BaseSettings):
     image_model: str = "gemini-3.1-flash-image"
     video_model: str = "veo-3.1-fast-generate-preview"
     tts_model: str = "gemini-3.1-flash-tts-preview"
-    tts_voice: str = "Charon"
+    # 나레이션 목소리. 2026-10 목소리 6종 비교에서 Leda(여, 젊고 밝음)로 정했다.
+    # 이전 Charon(남, 낮고 차분)은 영상 분위기를 무겁게 만들었다.
+    tts_voice: str = "Leda"
 
     # --- 렌더 설정 ---------------------------------------------------------
     aspect_ratio: Literal["9:16", "16:9"] = "9:16"

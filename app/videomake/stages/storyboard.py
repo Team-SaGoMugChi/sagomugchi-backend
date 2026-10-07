@@ -15,13 +15,17 @@ from typing import Literal
 from pydantic import BaseModel, Field, ValidationError
 
 from ..config import (
+    CROSSFADE_SECONDS,
     CUT_DURATIONS,
+    MAX_SILENT_RUN,
+    SILENT_CUT_SECONDS,
     DIALOGUE_MAX_LINES,
     DIALOGUE_MIN_LINES,
     DIALOGUE_MIN_SECONDS,
     CutSeconds,
     Settings,
     dialogue_max_chars,
+    narration_chars_for_window,
     narration_max_chars,
 )
 from ..errors import GuardrailViolation
@@ -30,9 +34,12 @@ from ..handoff import storyboard_context
 from ..job import JobStore
 from ..models import (
     CharacterProfile,
+    CastMember,
     Cut,
+    CutMood,
     DiaryInput,
     Distortion,
+    LocationProfile,
     Line,
     Stage,
     Storyboard,
@@ -43,6 +50,8 @@ from ..providers.base import LLMProvider
 log = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 3
+# 전체 길이가 상한에서 이만큼 안쪽이면 "상한 근처"로 보고 늘어진 컷을 줄이게 한다.
+NEAR_CAP_SECONDS = 4
 
 
 def _feedback(violations: list[str], previous_json: str) -> str:
@@ -80,12 +89,19 @@ class _CutDraft(BaseModel):
     camera_distance: Literal["wide", "full", "medium"]
     # 컷마다 LLM이 장면에 필요한 만큼 고른다. Veo는 4·6·8초만 만든다.
     duration_seconds: CutSeconds
+    # 그 컷이 담은 장면의 감정. 빛·색감·표정이 따라간다.
+    mood: CutMood
+    # locations에 정의한 장소 이름. 같은 장소의 컷은 같은 곳으로 그려진다.
+    location: str
+    # 화면에 보이는 이름 있는 인물과 위치. 화면에 없는 화자(전화 등)는 넣지 않는다.
+    cast: list[CastMember]
 
 
 class _StoryboardDraft(BaseModel):
     protagonist: CharacterProfile
     supporting: list[CharacterProfile] = Field(default_factory=list)
     distortions: list[Distortion] = Field(default_factory=list)
+    locations: list[LocationProfile]
     cuts: list[_CutDraft]
 
     def cut_errors(self) -> list[str]:
@@ -119,6 +135,20 @@ class _StoryboardDraft(BaseModel):
                 f"전체 길이가 {total}초다. {settings.min_total_seconds}~"
                 f"{settings.max_total_seconds}초여야 한다. 컷 수나 컷 길이를 조정한다."
             )
+        elif total >= settings.max_total_seconds - NEAR_CAP_SECONDS:
+            # 상한은 목표가 아니다. 상한 근처인데 4초로 충분한 컷이 길게 잡혀 있으면 줄이게 한다.
+            short = narration_max_chars(4)
+            padded = [
+                pos
+                for pos, c in enumerate(self.cuts, start=1)
+                if c.duration_seconds > 4 and c.narration and len(c.narration) <= short
+            ]
+            if padded:
+                out.append(
+                    f"전체 길이가 {total}초로 상한에 가깝다. 컷 "
+                    + "·".join(map(str, padded))
+                    + f"은 나레이션이 4초 상한({short}자) 안이니 동작이 하나면 4초로 줄인다."
+                )
         return out
 
     @staticmethod
@@ -132,6 +162,9 @@ class _StoryboardDraft(BaseModel):
             dialogue=[Line(**line.model_dump()) for line in c.dialogue],
             camera_distance=c.camera_distance,
             duration_seconds=c.duration_seconds,
+            mood=c.mood,
+            location=c.location,
+            cast=c.cast,
         )
 
     def to_storyboard(self) -> Storyboard:
@@ -139,6 +172,7 @@ class _StoryboardDraft(BaseModel):
             protagonist=self.protagonist,
             supporting=self.supporting,
             distortions=self.distortions,
+            locations=self.locations,
             cuts=[
                 self._build_cut(c, pos)
                 for pos, c in enumerate(self.cuts, start=1)
@@ -146,15 +180,9 @@ class _StoryboardDraft(BaseModel):
         )
 
 
-async def plan_storyboard(
-    diary: DiaryInput,
-    *,
-    llm: LLMProvider,
-    prompts: PromptLibrary,
-    settings: Settings,
-    job: JobStore | None = None,
-) -> Storyboard:
-    system = prompts.render(
+def system_prompt(prompts: PromptLibrary, settings: Settings, protagonist_hint: str = "주인공") -> str:
+    """스토리보드 LLM 시스템 프롬프트. 길이·글자 수 규칙의 숫자를 설정에서 채운다."""
+    return prompts.render(
         "storyboard_planner.system.md",
         min_cuts=settings.min_cuts,
         max_cuts=settings.max_cuts,
@@ -166,11 +194,26 @@ async def plan_storyboard(
             d: dialogue_max_chars(d) for d in CUT_DURATIONS if d >= DIALOGUE_MIN_SECONDS
         },
         dialogue_min_seconds=DIALOGUE_MIN_SECONDS,
+        silent_cut_seconds=SILENT_CUT_SECONDS,
+        max_silent_run=MAX_SILENT_RUN,
+        # 예시: 4초 나레이션 컷 뒤에 4초 무음 컷이 이어질 때 그 나레이션이 쓸 수 있는 글자 수.
+        spanning_example_chars=narration_chars_for_window(8 - 2 * CROSSFADE_SECONDS),
         distancing_rules=prompts.distancing_rules,
-        protagonist_hint=diary.protagonist_name or "주인공",
+        protagonist_hint=protagonist_hint,
         dialogue_max_lines=DIALOGUE_MAX_LINES,
         dialogue_min_lines=DIALOGUE_MIN_LINES,
     )
+
+
+async def plan_storyboard(
+    diary: DiaryInput,
+    *,
+    llm: LLMProvider,
+    prompts: PromptLibrary,
+    settings: Settings,
+    job: JobStore | None = None,
+) -> Storyboard:
+    system = system_prompt(prompts, settings, diary.protagonist_name or "주인공")
     user = prompts.render(
         "storyboard_planner.user.j2",
         diary_text=diary.text,

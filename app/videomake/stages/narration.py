@@ -31,12 +31,13 @@ async def synthesize_narrations(
     force: bool = False,
     concurrency: int = 3,
 ) -> dict[int, Path]:
-    # 대사 컷은 Veo가 직접 발화한다. 여기서 만들 나레이션이 없다.
+    # 대사 컷은 Veo가 직접 발화하고, 무음 컷은 목소리가 없다. 나레이션 컷만 만든다.
     targets = [
         c
         for c in sb.cuts
-        if (only is None or c.index in only) and not c.is_dialogue
+        if (only is None or c.index in only) and c.narration
     ]
+    windows = sb.narration_windows()
     sem = asyncio.Semaphore(concurrency)
     started = time.perf_counter()
 
@@ -45,7 +46,7 @@ async def synthesize_narrations(
         if dest.exists() and not force:
             log.info("컷 %d 나레이션 캐시 재사용", cut.index)
             return cut.index, dest
-        style = prompts.render("narration_style.j2", text=cut.narration)
+        style = prompts.render("narration_style.j2", text=cut.narration, mood=cut.mood)
         async with sem:
             result = await tts.synthesize(
                 text=cut.narration,
@@ -54,11 +55,12 @@ async def synthesize_narrations(
                 style_prompt=style,
             )
         job.record_cost(f"cut{cut.index}_tts", result.cost_usd)
-        if result.duration_s > cut.duration_seconds:
-            # 컷보다 길면 Compositor에서 잘린다. 스토리보드 글자수를 줄여야 한다.
+        window = windows.get(cut.index, cut.duration_seconds)
+        if result.duration_s > window:
+            # 이어지는 구간보다 길면 다음 목소리와 겹치거나 끝이 잘린다. 글자 수를 줄여야 한다.
             log.warning(
-                "컷 %d 나레이션이 %.1fs로 컷 길이 %ds를 넘는다. 뒷부분이 잘린다.",
-                cut.index, result.duration_s, cut.duration_seconds,
+                "컷 %d 나레이션이 %.1fs로 읽힐 수 있는 시간 %.1fs를 넘는다.",
+                cut.index, result.duration_s, window,
             )
         else:
             log.info("컷 %d 나레이션 %.1fs", cut.index, result.duration_s)

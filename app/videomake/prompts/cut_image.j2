@@ -1,12 +1,36 @@
 Generate a single still frame for an animated short.
 
-The attached image is the character reference sheet for {{ name }}.
-Reproduce {{ name }} with exactly the same face, hair, body proportions, clothing
-and colors as the reference. Do not redesign the character.
-
+ATTACHED REFERENCE IMAGES (in this order):
+{% for m in people -%}
+{{ loop.index }}. Character reference sheet for {{ m.name }}.
+{% endfor -%}
+{% if has_location_sheet -%}
+{{ people | length + 1 }}. Location reference sheet: the same place seen from four sides.
+{% endif %}
+{% for m in people -%}
+Reproduce {{ m.name }} with exactly the same face, hair, body proportions, clothing and colors
+as their character reference sheet. Do not redesign anyone.
+{% endfor %}
 SCENE:
 {{ image_prompt }}
-
+{% if cast | length > 1 %}
+PEOPLE IN THE FRAME:
+{% for m in cast -%}
+{{ m.name }} is on the {{ m.position }} side of the frame.
+{% endfor -%}
+Each person must be clearly distinguishable and stay where listed.
+They are with each other: they face each other or turn toward each other at an angle.
+They never stand side by side facing the camera, and nobody looks at the camera.
+{% endif %}
+{%- if location %}
+PLACE:
+{{ location.description }}
+{% if has_location_sheet -%}
+Use the location reference sheet ONLY to know what each side of the place looks like.
+Show the side of the place that SCENE says the camera faces, from the camera position in SCENE.
+Do NOT copy the viewpoint or composition of any panel of the location sheet.
+{% endif -%}
+{% endif %}
 FRAMING:
 Third-person observational {{ camera_distance }} shot. The camera is a detached
 outside observer and never takes the character's point of view.
@@ -15,10 +39,13 @@ no extreme close-up, no POV, no over-shoulder subjective framing.
 The character occupies a modest portion of the frame with visible surrounding space.
 Vertical {{ aspect_ratio }} composition.
 
-RESTRAINT:
-Understated emotion. No screaming, no sobbing, no exaggerated gestures or expressions.
-Emotion is conveyed through posture, distance, light and empty space.
-The character's mouth is closed; they are not speaking.
+MOOD:
+{{ mood_block }}
+The light, colors, expression and posture must clearly show this mood.
+
+EXPRESSION:
+Natural and believable, never exaggerated. No screaming, no sobbing, no wild gestures.
+The character is not speaking.
 
 STYLE:
 {{ style_block }}

@@ -29,12 +29,12 @@ STEP_DELAY_SECONDS = 0.5
 
 # 4초 컷 상한(14자) 안에 든다.
 _NARRATIONS = [
-    "회의실에 그만 남았다.",
-    "빛이 천천히 기울었다.",
-    "그는 노트를 덮었다.",
-    "복도에 발소리만 남았다.",
-    "그는 자리에서 일어났다.",
-    "문이 조용히 닫혔다.",
+    "회의실에 그만 남았어요.",
+    "빛이 천천히 기울었어요.",
+    "그는 노트를 덮었어요.",
+    "복도에 발소리만 남았어요.",
+    "그는 자리에서 일어났어요.",
+    "문이 조용히 닫혔어요.",
 ]
 
 
@@ -53,6 +53,15 @@ def demo_storyboard_payload(n_cuts: int, seconds: int = 4) -> dict:
             ),
         },
         "distortions": [],
+        "locations": [
+            {
+                "name": "회의실",
+                "description": (
+                    "A small office meeting room with grey carpet, white walls, a long light-wood "
+                    "table with eight black chairs, and vertical blinds on the left wall windows."
+                ),
+            }
+        ],
         "cuts": [
             {
                 "index": i,
@@ -68,6 +77,9 @@ def demo_storyboard_payload(n_cuts: int, seconds: int = 4) -> dict:
                 "dialogue": [],
                 "camera_distance": "wide",
                 "duration_seconds": seconds,
+                "mood": "평온",
+                "location": "회의실",
+                "cast": [{"name": "지훈", "position": "center"}],
             }
             for i in range(1, n_cuts + 1)
         ],

@@ -21,6 +21,7 @@ from .stages.character_sheet import build_character_sheet
 from .stages.compose import compose
 from .stages.cut_images import generate_cut_images
 from .stages.narration import synthesize_narrations
+from .stages.reference_sheets import build_reference_sheets
 from .stages.review import build_review
 from .stages.storyboard import plan_storyboard
 from .stages.video_render import render_cut_videos
@@ -74,9 +75,20 @@ class Pipeline:
             job=self.job,
             force=force and only is None,
         )
+        # 조연·장소 시트. 컷 일부만 다시 그릴 때는 기존 시트를 그대로 쓴다.
+        character_sheets, location_sheets = await build_reference_sheets(
+            sb,
+            image=self.p.image,
+            prompts=self.prompts,
+            settings=self.settings,
+            job=self.job,
+            force=force and only is None,
+        )
         images = await generate_cut_images(
             sb,
             sheet=sheet,
+            character_sheets=character_sheets,
+            location_sheets=location_sheets,
             image=self.p.image,
             prompts=self.prompts,
             settings=self.settings,
