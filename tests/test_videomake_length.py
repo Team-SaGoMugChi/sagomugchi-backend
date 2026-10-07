@@ -30,10 +30,16 @@ class _SequenceLLM:
         return draft, LLMResult(raw_json=draft.model_dump_json())
 
 
+# 8초 컷에 맞는 분량(4초 상한 16자를 넘고 8초 상한 36자 안).
+LONG_NARRATION = "그는 노트를 덮고 창밖을 한참 바라봤어요."
+
+
 def _payload(seconds: list[int]) -> dict:
     payload = fake.demo_storyboard_payload(len(seconds))
     for cut, s in zip(payload["cuts"], seconds):
         cut["duration_seconds"] = s
+        if s == 8:
+            cut["narration"] = LONG_NARRATION
     return payload
 
 
@@ -84,7 +90,7 @@ def test_unsupported_cut_length_is_rejected_by_schema():
         _StoryboardDraft.model_validate(payload)
 
 
-@pytest.mark.parametrize(("seconds", "limit"), [(4, 14), (6, 21), (8, 28)])
+@pytest.mark.parametrize(("seconds", "limit"), [(4, 16), (6, 26), (8, 36)])
 def test_narration_limit_follows_cut_length(seconds, limit):
     Cut(index=1, image_prompt="i", motion_prompt="m", narration="가" * limit,
         duration_seconds=seconds)
@@ -107,7 +113,7 @@ def test_prompt_states_length_ranges_and_per_length_limits():
     assert "3~10개" in system
     assert "4 / 6 / 8초 중 하나만" in system
     assert "12~40초" in system
-    assert "4초 14자 / 6초 21자 / 8초 28자" in system
+    assert "4초 16자 / 6초 26자 / 8초 36자" in system
     assert "6초 30자 / 8초 40자" in system
     assert "{{" not in system
 
@@ -127,3 +133,49 @@ def test_job_progress_counts_cuts_from_storyboard(tmp_path):
 
     # 설정값이 아니라 스토리보드의 컷 5개를 기준으로 이미지 단계가 끝났다고 본다.
     assert (stage, progress) == ("videos", 0.30)
+
+
+def test_eight_second_cut_with_four_second_narration_is_fed_back():
+    padded = _payload([4, 4, 8])
+    padded["cuts"][2]["narration"] = "민수는 웃으며 집에 갔어요"  # 14자 — 4초(16자)면 된다
+    sb, llm = _plan(padded, _payload([4, 4, 4]))
+
+    assert sb.total_seconds == 12
+    assert "8초 컷인데 나레이션이 14자로 4초 상한(16자) 안이다" in llm.users[1]
+
+
+def test_near_cap_lists_cuts_that_four_seconds_would_fit():
+    near_cap = _payload([6, 6, 6, 6, 6, 6])  # 36초, 나레이션은 모두 14자 이하
+    sb, llm = _plan(near_cap, _payload([4, 4, 6, 4]))
+
+    assert sb.total_seconds == 18
+    assert "전체 길이가 36초로 상한에 가깝다. 컷 1·2·3·4·5·6은" in llm.users[1]
+
+
+def test_near_cap_is_fine_when_cuts_need_their_length():
+    near_cap = _payload([6, 6, 6, 6, 6, 6])
+    for cut in near_cap["cuts"]:
+        cut["narration"] = "그는 노트를 덮고 숨을 골랐어요."  # 18자 — 4초 상한을 넘는다
+    sb, llm = _plan(near_cap)
+
+    assert sb.total_seconds == 36
+    assert len(llm.users) == 1
+
+
+def test_last_cut_does_not_have_to_be_wide():
+    payload = _payload([4, 4, 4])
+    payload["cuts"][-1]["camera_distance"] = "medium"
+    sb, llm = _plan(payload)
+
+    assert sb.cuts[-1].camera_distance == "medium"
+    assert len(llm.users) == 1
+
+
+def test_prompt_ties_length_to_content_and_ending_to_last_emotion():
+    _, llm = _plan(_payload([4, 4, 4]))
+    system = llm.systems[0]
+
+    assert "상한은 목표가 아니다" in system
+    assert "**4초(기본)**: 나레이션이 4초 상한(16자) 안에" in system
+    assert "일기의 마지막 감정" in system
+    assert "가장 넓은 샷" not in system

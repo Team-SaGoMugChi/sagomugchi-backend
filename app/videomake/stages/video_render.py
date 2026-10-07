@@ -65,7 +65,12 @@ async def render_cut_videos(
                 for line in cut.dialogue
             ]
             motion = prompts.render(
-                "motion.j2", motion_prompt=cut.motion_prompt, dialogue=lines
+                "motion.j2",
+                motion_prompt=cut.motion_prompt,
+                dialogue=lines,
+                mood_line=prompts.render(
+                    "mood.j2", mood=cut.mood, name=sb.protagonist.name, part="motion"
+                ),
             )
             handle = await video.submit(
                 cut_index=cut.index,

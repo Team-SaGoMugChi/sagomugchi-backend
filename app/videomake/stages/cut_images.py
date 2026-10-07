@@ -47,6 +47,9 @@ async def generate_cut_images(
             camera_distance=cut.camera_distance,
             aspect_ratio=settings.aspect_ratio,
             style_block=prompts.style_block,
+            mood_block=prompts.render(
+                "mood.j2", mood=cut.mood, name=sb.protagonist.name, part="image"
+            ),
         )
         async with sem:
             result = await image.generate(

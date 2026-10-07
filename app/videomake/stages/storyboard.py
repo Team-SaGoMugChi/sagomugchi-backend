@@ -31,6 +31,7 @@ from ..job import JobStore
 from ..models import (
     CharacterProfile,
     Cut,
+    CutMood,
     DiaryInput,
     Distortion,
     Line,
@@ -43,6 +44,8 @@ from ..providers.base import LLMProvider
 log = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 3
+# 전체 길이가 상한에서 이만큼 안쪽이면 "상한 근처"로 보고 늘어진 컷을 줄이게 한다.
+NEAR_CAP_SECONDS = 4
 
 
 def _feedback(violations: list[str], previous_json: str) -> str:
@@ -80,6 +83,8 @@ class _CutDraft(BaseModel):
     camera_distance: Literal["wide", "full", "medium"]
     # 컷마다 LLM이 장면에 필요한 만큼 고른다. Veo는 4·6·8초만 만든다.
     duration_seconds: CutSeconds
+    # 그 컷이 담은 장면의 감정. 빛·색감·표정이 따라간다.
+    mood: CutMood
 
 
 class _StoryboardDraft(BaseModel):
@@ -119,6 +124,20 @@ class _StoryboardDraft(BaseModel):
                 f"전체 길이가 {total}초다. {settings.min_total_seconds}~"
                 f"{settings.max_total_seconds}초여야 한다. 컷 수나 컷 길이를 조정한다."
             )
+        elif total >= settings.max_total_seconds - NEAR_CAP_SECONDS:
+            # 상한은 목표가 아니다. 상한 근처인데 4초로 충분한 컷이 길게 잡혀 있으면 줄이게 한다.
+            short = narration_max_chars(4)
+            padded = [
+                pos
+                for pos, c in enumerate(self.cuts, start=1)
+                if c.duration_seconds > 4 and not c.dialogue and len(c.narration) <= short
+            ]
+            if padded:
+                out.append(
+                    f"전체 길이가 {total}초로 상한에 가깝다. 컷 "
+                    + "·".join(map(str, padded))
+                    + f"은 나레이션이 4초 상한({short}자) 안이니 동작이 하나면 4초로 줄인다."
+                )
         return out
 
     @staticmethod
@@ -132,6 +151,7 @@ class _StoryboardDraft(BaseModel):
             dialogue=[Line(**line.model_dump()) for line in c.dialogue],
             camera_distance=c.camera_distance,
             duration_seconds=c.duration_seconds,
+            mood=c.mood,
         )
 
     def to_storyboard(self) -> Storyboard:

@@ -26,6 +26,10 @@ from .config import (
 # 클로즈업 계열이 아예 표현 불가능하도록 세 값만 허용한다. (연출 원칙 2)
 CameraDistance = Literal["wide", "full", "medium"]
 
+# 컷 감정. 감정 분석 6종 + 감정이 두드러지지 않는 "평온". 컷 그림의 빛·색감·표정과
+# 영상의 분위기가 이 값을 따른다(prompts/mood.j2). 일기 장면의 감정이 영상에 드러나게 한다.
+CutMood = Literal["기쁨", "슬픔", "분노", "불안", "상처", "당황", "평온"]
+
 
 class Stage(str, Enum):
     STORYBOARD = "storyboard"
@@ -92,6 +96,7 @@ class Cut(BaseModel):
     )
     camera_distance: CameraDistance = "full"
     duration_seconds: CutSeconds = 8
+    mood: CutMood = "평온"
 
     @property
     def is_dialogue(self) -> bool:

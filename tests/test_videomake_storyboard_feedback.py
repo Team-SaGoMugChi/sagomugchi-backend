@@ -36,13 +36,13 @@ def _settings():
 def test_all_cut_errors_are_reported_with_cut_numbers():
     payload = _payload()
     payload["cuts"][0]["narration"] = ""  # 나레이션도 대사도 없음
-    payload["cuts"][2]["narration"] = "가" * 40  # 4초 컷 14자 상한 초과
+    payload["cuts"][2]["narration"] = "가" * 40  # 4초 컷 16자 상한 초과
     errors = _StoryboardDraft.model_validate(payload).cut_errors()
 
     assert len(errors) == 2
     assert errors[0].startswith("cut1")
     assert errors[1].startswith("cut3")
-    assert "나레이션" in errors[1] and "4초 컷 상한 14자" in errors[1]
+    assert "나레이션" in errors[1] and "4초 컷 상한 16자" in errors[1]
 
 
 def test_cut_index_follows_order_not_llm_value():

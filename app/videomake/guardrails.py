@@ -129,6 +129,14 @@ def lint_narration(text: str, protagonist: str, seconds: int = 8) -> list[Violat
                 detail=f"{len(text)}자. 컷 길이 안에 읽히지 않는다.",
             )
         )
+    if not text.strip().rstrip(".!?…~ ").endswith("요"):
+        out.append(
+            Violation(
+                field="narration",
+                rule="해요체로 쓴다",
+                detail=f'"{text}" — "~했어요", "~였어요"처럼 끝낸다.',
+            )
+        )
     padded = f" {text} "
     for token in _FIRST_PERSON_KO:
         if token in padded:
@@ -142,9 +150,30 @@ def lint_narration(text: str, protagonist: str, seconds: int = 8) -> list[Violat
     return out
 
 
+def lint_duration(cut: Cut) -> list[Violation]:
+    """8초 컷인데 나레이션이 4초 컷에 들어가는 양이면 길이가 내용보다 길다.
+
+    길이는 내용의 양으로 정한다. LLM은 감정의 무게나 여운으로 컷을 늘리는 경향이 있다
+    (마지막 wide 컷을 8초로 잡는 식). 6초는 동작이 둘 이상일 수 있어 여기서 막지 않는다.
+    """
+    if cut.is_dialogue or cut.duration_seconds != 8 or cut.narration is None:
+        return []
+    short = narration_max_chars(4)
+    if len(cut.narration) > short:
+        return []
+    return [
+        Violation(
+            field="duration_seconds",
+            rule="컷 길이는 내용의 양으로 정한다",
+            detail=f"8초 컷인데 나레이션이 {len(cut.narration)}자로 4초 상한({short}자) 안이다. 4초나 6초로 줄인다.",
+        )
+    ]
+
+
 def lint_cut(cut: Cut, protagonist: str) -> list[Violation]:
     out = lint_image_prompt(cut.image_prompt)
     out += lint_motion_prompt(cut.motion_prompt)
+    out += lint_duration(cut)
     # 1인칭 금지(원칙 3)는 화면 밖 나레이션에만 적용한다. 인물이 대사에서
     # "나"라고 말하는 것은 자연스러운 발화이지 관찰 거리의 붕괴가 아니다.
     if cut.narration is not None:
@@ -169,6 +198,29 @@ def lint_english(text: str, field: str, names: set[str]) -> list[Violation]:
     return [Violation(field=field, rule="영어로 작성", detail=f"한국어 발견: {sample}")]
 
 
+def lint_name_repetition(sb: Storyboard) -> list[Violation]:
+    """나레이션마다 주인공 이름으로 시작하면 단조롭다. 이름은 몇 번만 쓰고 주어를 생략하게 한다.
+
+    허용 횟수는 나레이션 컷 수의 1/3(최소 2번).
+    """
+    name = sb.protagonist.name
+    narrated = [c for c in sb.cuts if c.narration]
+    named = [c.index for c in narrated if name in c.narration]
+    allowed = max(2, -(-len(narrated) // 3))
+    if len(named) <= allowed:
+        return []
+    return [
+        Violation(
+            field="narration",
+            rule="주인공 이름 반복 줄이기",
+            detail=(
+                f'나레이션 {len(narrated)}개 중 {len(named)}개(컷 {"·".join(map(str, named))})에 '
+                f'"{name}"이 나온다. {allowed}번 이하로 줄이고 나머지는 주어를 생략한다.'
+            ),
+        )
+    ]
+
+
 def lint_storyboard(sb: Storyboard) -> list[Violation]:
     out: list[Violation] = []
     names = {c.name for c in sb.characters}
@@ -179,13 +231,5 @@ def lint_storyboard(sb: Storyboard) -> list[Violation]:
         out += lint_cut(cut, sb.protagonist.name)
         out += lint_english(cut.image_prompt, f"cut{cut.index}.image_prompt", names)
         out += lint_english(cut.motion_prompt, f"cut{cut.index}.motion_prompt", names)
-    # 마지막 컷은 관찰 거리를 한 번 더 넓힌다.
-    if sb.cuts and sb.cuts[-1].camera_distance != "wide":
-        out.append(
-            Violation(
-                field=f"cut{sb.cuts[-1].index}.camera_distance",
-                rule="마지막 컷은 wide로 끝낸다",
-                detail=f"현재 {sb.cuts[-1].camera_distance}",
-            )
-        )
+    out += lint_name_repetition(sb)
     return out

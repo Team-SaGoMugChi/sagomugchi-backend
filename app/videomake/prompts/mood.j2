@@ -1,0 +1,49 @@
+{#- 컷 감정(mood) → 빛·색감·표정·자세. part="image"는 컷 그림, part="motion"은 Veo 한 줄.
+    감정은 일기 장면의 감정을 따른다. 과장(절규·오열)은 어떤 감정에서도 하지 않는다. -#}
+{%- if part == "motion" -%}
+{%- if mood == "기쁨" -%}
+The mood stays warm, light and happy throughout; {{ name }} keeps a natural, relaxed smile.
+{%- elif mood == "슬픔" -%}
+The mood stays quietly sad throughout; {{ name }} moves slowly with a lowered gaze.
+{%- elif mood == "분노" -%}
+The mood stays tense and frustrated throughout; {{ name }} holds a stiff, tight posture.
+{%- elif mood == "불안" -%}
+The mood stays uneasy throughout; {{ name }}'s small movements are restless and hesitant.
+{%- elif mood == "상처" -%}
+The mood stays hurt and withdrawn throughout; {{ name }} keeps to themselves.
+{%- elif mood == "당황" -%}
+The mood stays flustered throughout; {{ name }} reacts with small awkward movements.
+{%- else -%}
+The mood stays calm and at ease throughout.
+{%- endif -%}
+{%- else -%}
+{%- if mood == "기쁨" -%}
+Light: warm, bright natural light such as soft sunlight or warm indoor lighting.
+Color: natural, lively colors with healthy saturation; an airy, cheerful atmosphere.
+{{ name }}: genuinely happy. Relaxed shoulders, open and light posture, a natural smile.
+{%- elif mood == "슬픔" -%}
+Light: soft, dim or overcast light with cooler tones.
+Color: gently muted colors, never gloomy black.
+{{ name }}: quietly sad. Lowered gaze, slumped shoulders, still or slow posture.
+{%- elif mood == "분노" -%}
+Light: slightly harder light with clearer contrast, neutral to cool tones.
+Color: natural colors.
+{{ name }}: frustrated. Tense jaw, furrowed brow, stiff posture, arms crossed or hands tightened.
+{%- elif mood == "불안" -%}
+Light: cool, slightly dim light.
+Color: slightly muted colors.
+{{ name }}: anxious. Hunched shoulders, fidgeting hands, a restless sideways glance.
+{%- elif mood == "상처" -%}
+Light: soft, cool light.
+Color: slightly muted colors.
+{{ name }}: hurt. Withdrawn posture, looking away, arms held close to the body.
+{%- elif mood == "당황" -%}
+Light: ordinary natural daylight.
+Color: natural colors.
+{{ name }}: flustered and embarrassed. An awkward half-smile, a hand at the back of the neck, glancing aside.
+{%- else -%}
+Light: soft, even natural daylight.
+Color: natural, balanced colors.
+{{ name }}: calm and at ease. Relaxed neutral expression and posture.
+{%- endif -%}
+{%- endif -%}

@@ -45,7 +45,7 @@ async def synthesize_narrations(
         if dest.exists() and not force:
             log.info("컷 %d 나레이션 캐시 재사용", cut.index)
             return cut.index, dest
-        style = prompts.render("narration_style.j2", text=cut.narration)
+        style = prompts.render("narration_style.j2", text=cut.narration, mood=cut.mood)
         async with sem:
             result = await tts.synthesize(
                 text=cut.narration,

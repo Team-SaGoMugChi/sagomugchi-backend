@@ -21,8 +21,11 @@ PROMPTS_DIR = PACKAGE_ROOT / "prompts"
 CUT_DURATIONS = (4, 6, 8)
 CutSeconds = Literal[4, 6, 8]
 
-# 8초 안에 편안히 읽히는 한국어 나레이션 길이 상한. 짧은 컷은 길이에 비례해 줄인다.
-NARRATION_MAX_CHARS = 28
+# 나레이션 낭독 속도(초당 글자 수, 공백 포함). "보통 대화 속도" 낭독 지시로 목소리 6종을
+# 재보니 초당 5.0~6.1자였다(2026-10). 가장 느린 값을 써서 어떤 목소리도 컷 안에 끝나게 한다.
+NARRATION_CHARS_PER_SECOND = 5
+# 컷 시작 0.4초 뒤에 목소리가 들어오고(compose.NARRATION_DELAY_MS) 끝에 숨 쉴 틈을 남긴다.
+NARRATION_MARGIN_SECONDS = 0.8
 
 # 대사는 Veo가 직접 발화한다. 스파이크에서 8초에 18자 + 12자가 여유 있게 들어갔고
 # 말 사이 공백까지 필요하므로 총량을 이 선에서 막는다. 짧은 컷은 길이에 비례해 줄인다.
@@ -37,8 +40,8 @@ DIALOGUE_MIN_LINES = 2
 
 
 def narration_max_chars(seconds: int) -> int:
-    """컷 길이(초)에 맞는 나레이션 글자 수 상한. 8초 28자 기준 비례(4초 14자, 6초 21자)."""
-    return NARRATION_MAX_CHARS * seconds // 8
+    """컷 길이(초)에 맞는 나레이션 글자 수 상한(4초 16자, 6초 26자, 8초 36자)."""
+    return int(NARRATION_CHARS_PER_SECOND * (seconds - NARRATION_MARGIN_SECONDS))
 
 
 def dialogue_max_chars(seconds: int) -> int:
@@ -83,7 +86,9 @@ class Settings(BaseSettings):
     image_model: str = "gemini-3.1-flash-image"
     video_model: str = "veo-3.1-fast-generate-preview"
     tts_model: str = "gemini-3.1-flash-tts-preview"
-    tts_voice: str = "Charon"
+    # 나레이션 목소리. 2026-10 목소리 6종 비교에서 Leda(여, 젊고 밝음)로 정했다.
+    # 이전 Charon(남, 낮고 차분)은 영상 분위기를 무겁게 만들었다.
+    tts_voice: str = "Leda"
 
     # --- 렌더 설정 ---------------------------------------------------------
     aspect_ratio: Literal["9:16", "16:9"] = "9:16"
