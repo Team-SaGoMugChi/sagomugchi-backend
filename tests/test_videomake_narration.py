@@ -73,3 +73,15 @@ def test_name_a_few_times_is_fine():
 
 def test_planner_is_told_to_drop_the_subject():
     assert "주어를 생략한다" in _system()
+
+
+def test_eating_may_mention_the_mouth_but_speaking_motion_may_not():
+    from app.videomake.guardrails import lint_motion_prompt
+
+    def mouth_rules(text):
+        return [v.rule for v in lint_motion_prompt(text) if "입" in v.rule]
+
+    assert mouth_rules("He lifts a spoonful of rice to his mouth and smiles.") == []
+    assert mouth_rules("He wipes his mouth with a napkin.") == []
+    assert mouth_rules("He opens his mouth as if to answer.") == ["입 움직임 연출 금지 (원칙 7)"]
+    assert mouth_rules("Her mouth moves slightly.") == ["입 움직임 연출 금지 (원칙 7)"]

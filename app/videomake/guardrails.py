@@ -65,7 +65,14 @@ _SPEECH_PATTERNS = [
     (r"\bsay(s|ing)?\b|\bspeak(s|ing)?\b|\btalk(s|ing)?\b", "발화 연출 금지 (원칙 7)"),
     (r"\blips?\b", "입 움직임 연출 금지 (원칙 7)"),
     (r"\bdialogue\b|\bshout(s|ing)?\b", "대사 금지 (원칙 7)"),
-    (r"\bmouths?\b", "입 묘사 금지 (원칙 7)"),
+    # 입을 여닫거나 움직이는 묘사만 막는다. Veo가 말하는 입 모양으로 만든다.
+    # "mouth" 단어 자체를 막으면 먹는 장면("lifts the spoon to his mouth")을 쓸 수 없어
+    # 스토리보드가 3회 모두 실패했다(2026-10 관측).
+    (
+        r"\b(open(s|ing)?|clos(e|es|ing)|mov(e|es|ing))\s+(his|her|their|the)?\s*mouths?\b"
+        r"|\bmouths?\s+(open(s|ing)?|clos(e|es|ing)|mov(e|es|ing)|form(s|ing)?)\b",
+        "입 움직임 연출 금지 (원칙 7)",
+    ),
 ]
 _FAST_CAMERA_PATTERNS = [
     (r"quick(ly)? (pan|zoom|cut)", "급격한 카메라 이동 금지 (원칙 2)"),
