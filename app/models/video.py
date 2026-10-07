@@ -47,3 +47,10 @@ class VideoJobStatus(BaseModel):
     video_url: str | None = Field(
         None, description="status=done일 때 mp4 경로(서버 기준 상대 경로)"
     )
+    thumbnail_url: str | None = Field(
+        None,
+        description=(
+            "status=done이고 썸네일이 있을 때 대표 장면 가로(16:9) jpg 경로(서버 기준 상대 경로). "
+            "썸네일 생성에 실패하면 null — 영상은 그대로 볼 수 있다"
+        ),
+    )
