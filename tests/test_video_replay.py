@@ -113,3 +113,21 @@ def test_dummy_media_keeps_real_llm(tmp_path):
     assert isinstance(providers.llm, OpenAILLMProvider)
     assert isinstance(providers.video, fake.FakeVideo)
     assert providers.client is None
+
+
+def test_resume_reuses_storyboard_and_images(tmp_path):
+    settings = _settings(tmp_path)
+    first = _pipe(settings)
+    asyncio.run(video_replay.replay(DIARY, pipe=first, until="images"))
+    storyboard = first.job.storyboard_path.read_text()
+    image_time = first.job.cut_image(1).stat().st_mtime
+
+    resumed = Pipeline(
+        providers=build_fake_providers(settings),
+        job=JobStore(settings.jobs_dir, first.job.dir.name),
+        settings=settings,
+    )
+    asyncio.run(video_replay.replay(DIARY, pipe=resumed, until="storyboard"))
+
+    assert resumed.job.storyboard_path.read_text() == storyboard
+    assert resumed.job.cut_image(1).stat().st_mtime == image_time

@@ -12,6 +12,8 @@
                                  컷 길이·흐름이 담긴 mp4를 앱 없이 확인할 때
     --yes                        실제 영상 렌더 전 비용 확인을 건너뛴다
     --save-to 폴더                완성된 mp4와 시나리오 요약(txt)을 이 폴더에 복사한다
+    --resume                     새 작업을 만들지 않고 source 작업을 이어서 한다. 이미 만든
+                                 시나리오·그림은 그대로 쓴다(예: --until images 뒤에 영상까지)
 
 .env의 VIDEOMAKE_DUMMY와 상관없이 시나리오는 항상 실제 LLM(.env의 VIDEOMAKE_LLM_PROVIDER)으로 짠다.
 """
@@ -88,7 +90,8 @@ def summary(sb: Storyboard, job: JobStore) -> str:
     ]
     for c in sb.cuts:
         voice = c.narration or " / ".join(f"{line.speaker}: {line.text}" for line in c.dialogue) or "(무음 — 앞 나레이션 이어짐)"
-        lines.append(f"  {c.index:>2}. {c.duration_seconds}초 {c.mood} {c.location or '-'} {c.camera_distance:<6} | {voice}")
+        cast = ",".join(f"{m.name}({m.position[0].upper()})" for m in c.cast) or "-"
+        lines.append(f"  {c.index:>2}. {c.duration_seconds}초 {c.mood} {c.location or '-'} [{cast}] {c.camera_distance:<6} | {voice}")
     for d in sb.distortions:
         lines.append(f"  인지왜곡: {d.fact} → {d.felt_as} ({d.kind})")
     lines.append(f"지금까지 비용: ${job.spent_usd():.3f}")
@@ -155,6 +158,7 @@ def main() -> None:
     parser.add_argument("--until", choices=STAGES, default="storyboard")
     parser.add_argument("--media", choices=("real", "dummy"), default="real")
     parser.add_argument("--name", help="새 작업 폴더 이름 뒤에 붙일 메모(영문·숫자)")
+    parser.add_argument("--resume", action="store_true", help="source 작업을 이어서 한다")
     parser.add_argument("--yes", action="store_true", help="실제 렌더 전 비용 확인 생략")
     parser.add_argument("--save-to", type=Path, help="완성 mp4·요약을 복사할 폴더")
     args = parser.parse_args()
@@ -165,7 +169,13 @@ def main() -> None:
         return
 
     diary = load_input(args.source, settings.jobs_dir)
-    job = new_job(settings.jobs_dir, args.name)
+    if args.resume:
+        job_dir = Path(args.source) if Path(args.source).is_dir() else settings.jobs_dir / args.source
+        if not job_dir.is_dir():
+            raise SystemExit(f"이어서 할 작업 폴더를 찾지 못했어요: {args.source}")
+        job = JobStore(job_dir.parent, job_dir.name)
+    else:
+        job = new_job(settings.jobs_dir, args.name)
     pipe = Pipeline(
         providers=build_replay_providers(settings, media=args.media),
         job=job,
