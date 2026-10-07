@@ -86,3 +86,9 @@ def test_planner_keeps_the_cause_and_trusts_the_diary_over_scene_tone():
     system = _system()
     assert "일기의 사건을 빠뜨리지 않는다" in system
     assert "일기에 적힌 실제 상황이 우선이다" in system
+
+
+def test_planner_does_not_coin_words_to_fit_the_limit():
+    system = _system()
+    assert "없는 말을 만들지 않는다" in system
+    assert '"집에 가는 길이 가벼웠어요"' in system
