@@ -80,3 +80,9 @@ def test_eating_may_mention_the_mouth_but_speaking_motion_may_not():
     assert mouth_rules("He wipes his mouth with a napkin.") == []
     assert mouth_rules("He opens his mouth as if to answer.") == ["입 움직임 연출 금지 (원칙 7)"]
     assert mouth_rules("Her mouth moves slightly.") == ["입 움직임 연출 금지 (원칙 7)"]
+
+
+def test_planner_keeps_the_cause_and_trusts_the_diary_over_scene_tone():
+    system = _system()
+    assert "일기의 사건을 빠뜨리지 않는다" in system
+    assert "일기에 적힌 실제 상황이 우선이다" in system

@@ -125,3 +125,8 @@ def test_korean_location_description_is_fed_back():
 
     fields = [v.field for v in lint_storyboard(sb) if v.rule == "영어로 작성"]
     assert fields == ["강의실.description"]
+
+
+def test_two_people_face_each_other_not_the_camera(tmp_path):
+    calls = _images(tmp_path, [("강의실", [("지훈", "left"), ("지수", "right")])])
+    assert "never stand side by side facing the camera" in calls["cut01"][0]

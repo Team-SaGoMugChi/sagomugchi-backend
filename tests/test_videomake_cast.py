@@ -94,3 +94,18 @@ def test_only_on_screen_supporting_get_a_sheet():
     sb = _StoryboardDraft.model_validate(payload).to_storyboard()
 
     assert [c.name for c in sb.on_screen_supporting] == ["지수"]
+
+
+def test_dialogue_prompt_forbids_subtitles_and_camera_gaze(tmp_path):
+    motion = _motion(tmp_path, [([("지훈", "left"), ("지수", "right")], ["지수", "지훈"])])[1]
+
+    assert "Absolutely no subtitles, captions, letters or any on-screen text" in motion
+    assert "look at each other while talking, never at the camera" in motion
+
+
+def test_negative_prompts_block_burned_in_text():
+    from app.videomake.prompts import get_prompts
+
+    p = get_prompts()
+    for negative in (p.video_negative_prompt, p.video_negative_prompt_dialogue):
+        assert "korean text" in negative and "chinese characters" in negative
