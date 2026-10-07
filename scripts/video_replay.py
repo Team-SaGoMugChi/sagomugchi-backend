@@ -84,10 +84,10 @@ def summary(sb: Storyboard, job: JobStore) -> str:
     lines = [
         f"작업: {job.dir}",
         f"주인공: {sb.protagonist.name}",
-        f"컷 {len(sb.cuts)}개 · 길이 {lengths} · 합계 {sb.total_seconds}초",
+        f"컷 {len(sb.cuts)}개 · 길이 {lengths} · 실제 영상 {sb.final_seconds:.1f}초(컷 겹침 반영)",
     ]
     for c in sb.cuts:
-        voice = c.narration or " / ".join(f"{line.speaker}: {line.text}" for line in c.dialogue)
+        voice = c.narration or " / ".join(f"{line.speaker}: {line.text}" for line in c.dialogue) or "(무음 — 앞 나레이션 이어짐)"
         lines.append(f"  {c.index:>2}. {c.duration_seconds}초 {c.mood} {c.location or '-'} {c.camera_distance:<6} | {voice}")
     for d in sb.distortions:
         lines.append(f"  인지왜곡: {d.fact} → {d.felt_as} ({d.kind})")
@@ -123,7 +123,7 @@ async def replay(
 def save_copy(sb: Storyboard, job: JobStore, folder: Path) -> Path:
     """완성 영상을 보기 쉬운 곳에 둔다. 이름에 작업 ID·컷 수·길이를 넣어 여러 번 돌려도 비교된다."""
     folder.mkdir(parents=True, exist_ok=True)
-    stem = f"{job.dir.name}_{len(sb.cuts)}컷_{sb.total_seconds}초"
+    stem = f"{job.dir.name}_{len(sb.cuts)}컷_{round(sb.final_seconds)}초"
     dest = folder / f"{stem}.mp4"
     shutil.copy2(job.final_path, dest)
     (folder / f"{stem}.txt").write_text(summary(sb, job) + "\n", encoding="utf-8")

@@ -35,14 +35,14 @@ def _settings():
 
 def test_all_cut_errors_are_reported_with_cut_numbers():
     payload = _payload()
-    payload["cuts"][0]["narration"] = ""  # 나레이션도 대사도 없음
-    payload["cuts"][2]["narration"] = "가" * 40  # 4초 컷 16자 상한 초과
+    line = {"speaker": "지훈", "text": "괜찮아?"}
+    payload["cuts"][0]["dialogue"] = [line, line]  # 나레이션과 대사를 함께 씀
+    payload["cuts"][2].update(narration="", dialogue=[line])  # 대사 한 줄뿐
     errors = _StoryboardDraft.model_validate(payload).cut_errors()
 
     assert len(errors) == 2
-    assert errors[0].startswith("cut1")
-    assert errors[1].startswith("cut3")
-    assert "나레이션" in errors[1] and "4초 컷 상한 16자" in errors[1]
+    assert errors[0].startswith("cut1") and "함께 넣을 수 없다" in errors[0]
+    assert errors[1].startswith("cut3") and "1줄뿐" in errors[1]
 
 
 def test_cut_index_follows_order_not_llm_value():
@@ -55,7 +55,7 @@ def test_cut_index_follows_order_not_llm_value():
 
 def test_retry_feedback_includes_previous_result_and_violations():
     bad = _payload()
-    bad["cuts"][1]["narration"] = ""
+    bad["cuts"][1]["narration"] = "그는 노트를 덮었다."  # 해요체가 아니다
     llm = _SequenceLLM([bad, _payload()])
 
     sb = asyncio.run(
@@ -68,7 +68,7 @@ def test_retry_feedback_includes_previous_result_and_violations():
     retry = llm.users[1]
     assert "## 직전 결과" in retry
     assert '"image_prompt"' in retry  # 직전 JSON이 들어 있다
-    assert "- cut2" in retry
+    assert "[cut2.narration] 해요체로 쓴다" in retry
     assert "위 항목만 고쳐라" in retry
 
 

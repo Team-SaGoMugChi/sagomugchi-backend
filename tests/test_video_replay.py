@@ -71,7 +71,7 @@ def test_storyboard_only_writes_new_job_and_keeps_original(tmp_path):
     assert DiaryInput.model_validate_json(pipe.job.input_path.read_text()) == DIARY
     assert not original.storyboard_path.exists()
     summary = video_replay.summary(sb, pipe.job)
-    assert f"컷 {len(sb.cuts)}개" in summary and f"합계 {sb.total_seconds}초" in summary
+    assert f"컷 {len(sb.cuts)}개" in summary and f"실제 영상 {sb.final_seconds:.1f}초" in summary
 
 
 def test_declined_render_stops_before_paid_stage(tmp_path):
@@ -100,9 +100,9 @@ def test_video_until_end_makes_final_mp4(tmp_path):
 
     sb = pipe.job.load_storyboard()
     copied = video_replay.save_copy(sb, pipe.job, tmp_path / "바탕화면")
-    assert copied.name == f"{pipe.job.dir.name}_{len(sb.cuts)}컷_{sb.total_seconds}초.mp4"
+    assert copied.name == f"{pipe.job.dir.name}_{len(sb.cuts)}컷_{round(sb.final_seconds)}초.mp4"
     assert copied.stat().st_size == pipe.job.final_path.stat().st_size
-    assert "합계" in copied.with_suffix(".txt").read_text(encoding="utf-8")
+    assert "실제 영상" in copied.with_suffix(".txt").read_text(encoding="utf-8")
 
 
 def test_dummy_media_keeps_real_llm(tmp_path):

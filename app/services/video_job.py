@@ -153,8 +153,8 @@ class VideoJobManager:
         videos = count(job.cut_video)
         if videos < n:
             return "videos", 0.30 + 0.60 * videos / n
-        # 대사 컷은 Veo가 직접 말하므로 나레이션 파일이 없다.
-        narrated = [c.index for c in storyboard.cuts if not c.is_dialogue]
+        # 대사 컷은 Veo가 직접 말하고 무음 컷은 목소리가 없어 나레이션 파일이 없다.
+        narrated = [c.index for c in storyboard.cuts if c.narration]
         done = sum(1 for i in narrated if job.cut_narration(i).exists())
         if done < len(narrated):
             return "narration", 0.90 + 0.05 * done / len(narrated)

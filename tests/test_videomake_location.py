@@ -80,8 +80,9 @@ def test_place_description_and_same_room_rule_are_in_the_prompt(tmp_path):
 
     anchor_prompt, follow_prompt = calls[0][1], calls[1][1]
     assert CLASSROOM in anchor_prompt and CLASSROOM in follow_prompt
-    assert "same room" not in anchor_prompt
-    assert "It is the same room" in follow_prompt
+    assert "Do NOT copy its composition" not in anchor_prompt
+    assert "Do NOT copy its composition" in follow_prompt
+    assert "A different viewpoint of\nthe same place is expected" in follow_prompt
     assert follow_prompt.startswith("Generate") and "The first attached image is the character" in follow_prompt
     # 장소 이름(한글)은 그림 모델에 넣지 않는다.
     assert "강의실" not in follow_prompt

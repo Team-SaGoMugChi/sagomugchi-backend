@@ -9,7 +9,13 @@ from __future__ import annotations
 
 import re
 
-from .config import narration_max_chars
+from .config import (
+    CROSSFADE_SECONDS,
+    MAX_SILENT_RUN,
+    SILENT_CUT_SECONDS,
+    narration_chars_for_window,
+    narration_max_chars,
+)
 from .models import Cut, Storyboard, Violation
 
 # --- image_prompt 금지 ------------------------------------------------------
@@ -125,14 +131,15 @@ def lint_motion_prompt(prompt: str) -> list[Violation]:
     return out
 
 
-def lint_narration(text: str, protagonist: str, seconds: int = 8) -> list[Violation]:
+def lint_narration(text: str, protagonist: str, window: float = 7.7) -> list[Violation]:
+    """window: 이 나레이션이 읽힐 수 있는 시간(초) — 그 컷과 뒤따르는 무음 컷(Storyboard.narration_windows)."""
     out: list[Violation] = []
-    limit = narration_max_chars(seconds)
+    limit = narration_chars_for_window(window)
     if len(text) > limit:
         out.append(
             Violation(
                 field="narration",
-                rule=f"{seconds}초 컷 나레이션 {limit}자 이내",
+                rule=f"나레이션 {limit}자 이내 (뒤따르는 무음 컷 포함 {window:.1f}초)",
                 detail=f"{len(text)}자. 컷 길이 안에 읽히지 않는다.",
             )
         )
@@ -163,7 +170,15 @@ def lint_duration(cut: Cut) -> list[Violation]:
     길이는 내용의 양으로 정한다. LLM은 감정의 무게나 여운으로 컷을 늘리는 경향이 있다
     (마지막 wide 컷을 8초로 잡는 식). 6초는 동작이 둘 이상일 수 있어 여기서 막지 않는다.
     """
-    if cut.is_dialogue or cut.duration_seconds != 8 or cut.narration is None:
+    if cut.is_silent and cut.duration_seconds > SILENT_CUT_SECONDS:
+        return [
+            Violation(
+                field="duration_seconds",
+                rule=f"무음 컷은 {SILENT_CUT_SECONDS}초",
+                detail=f"나레이션도 대사도 없는 컷이 {cut.duration_seconds}초다. 화면만 보여주는 컷은 짧게 넘긴다.",
+            )
+        ]
+    if cut.is_dialogue or cut.duration_seconds != 8 or not cut.narration:
         return []
     short = narration_max_chars(4)
     if len(cut.narration) > short:
@@ -177,14 +192,17 @@ def lint_duration(cut: Cut) -> list[Violation]:
     ]
 
 
-def lint_cut(cut: Cut, protagonist: str) -> list[Violation]:
+def lint_cut(cut: Cut, protagonist: str, window: float | None = None) -> list[Violation]:
+    """window: 이 컷 나레이션이 읽힐 수 있는 시간. 없으면 컷 하나 길이로 본다."""
     out = lint_image_prompt(cut.image_prompt)
     out += lint_motion_prompt(cut.motion_prompt)
     out += lint_duration(cut)
     # 1인칭 금지(원칙 3)는 화면 밖 나레이션에만 적용한다. 인물이 대사에서
     # "나"라고 말하는 것은 자연스러운 발화이지 관찰 거리의 붕괴가 아니다.
     if cut.narration is not None:
-        out += lint_narration(cut.narration, protagonist, cut.duration_seconds)
+        if window is None:
+            window = cut.duration_seconds - CROSSFADE_SECONDS
+        out += lint_narration(cut.narration, protagonist, window)
     return [v.model_copy(update={"field": f"cut{cut.index}.{v.field}"}) for v in out]
 
 
@@ -228,6 +246,34 @@ def lint_name_repetition(sb: Storyboard) -> list[Violation]:
     ]
 
 
+def lint_silent_cuts(sb: Storyboard) -> list[Violation]:
+    """무음 컷은 이야기 사이사이에만. 첫 컷은 목소리로 시작하고, 무음 컷이 길게 이어지지 않는다."""
+    out: list[Violation] = []
+    if sb.cuts and sb.cuts[0].is_silent:
+        out.append(
+            Violation(
+                field=f"cut{sb.cuts[0].index}.narration",
+                rule="첫 컷은 나레이션으로 시작한다",
+                detail="첫 컷이 무음이다. 무엇에 대한 이야기인지 첫 컷에서 알려준다.",
+            )
+        )
+    run: list[int] = []
+    for cut in [*sb.cuts, None]:
+        if cut is not None and cut.is_silent:
+            run.append(cut.index)
+            continue
+        if len(run) > MAX_SILENT_RUN:
+            out.append(
+                Violation(
+                    field="narration",
+                    rule=f"무음 컷은 {MAX_SILENT_RUN}개까지 연달아",
+                    detail=f'컷 {"·".join(map(str, run))}이 모두 무음이다. 중간에 나레이션을 넣는다.',
+                )
+            )
+        run = []
+    return out
+
+
 def lint_storyboard(sb: Storyboard) -> list[Violation]:
     out: list[Violation] = []
     names = {c.name for c in sb.characters}
@@ -236,9 +282,11 @@ def lint_storyboard(sb: Storyboard) -> list[Violation]:
         out += lint_english(c.voice, f"{c.name}.voice", names)
     for loc in sb.locations:
         out += lint_english(loc.description, f"{loc.name}.description", names)
+    windows = sb.narration_windows()
     for cut in sb.cuts:
-        out += lint_cut(cut, sb.protagonist.name)
+        out += lint_cut(cut, sb.protagonist.name, windows.get(cut.index))
         out += lint_english(cut.image_prompt, f"cut{cut.index}.image_prompt", names)
         out += lint_english(cut.motion_prompt, f"cut{cut.index}.motion_prompt", names)
     out += lint_name_repetition(sb)
+    out += lint_silent_cuts(sb)
     return out

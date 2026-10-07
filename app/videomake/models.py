@@ -15,12 +15,12 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from .config import (
+    CROSSFADE_SECONDS,
     DIALOGUE_MAX_LINES,
     DIALOGUE_MIN_LINES,
     DIALOGUE_MIN_SECONDS,
     CutSeconds,
     dialogue_max_chars,
-    narration_max_chars,
 )
 
 # 클로즈업 계열이 아예 표현 불가능하도록 세 값만 허용한다. (연출 원칙 2)
@@ -120,30 +120,24 @@ class Cut(BaseModel):
     def is_dialogue(self) -> bool:
         return bool(self.dialogue)
 
-    @model_validator(mode="after")
-    def _narration_fits_in_cut(self) -> Cut:
-        limit = narration_max_chars(self.duration_seconds)
-        if self.narration is not None and len(self.narration) > limit:
-            raise ValueError(
-                f"나레이션이 {len(self.narration)}자로 {self.duration_seconds}초 컷 상한 "
-                f"{limit}자를 넘는다. 컷 길이 안에 읽히지 않는다."
-            )
-        return self
+    @property
+    def is_silent(self) -> bool:
+        """나레이션도 대사도 없이 화면만 보여주는 컷. 앞 컷의 나레이션이 이어서 깔릴 수 있다."""
+        return not self.narration and not self.dialogue
 
     @model_validator(mode="after")
-    def _exactly_one_voice_track(self) -> Cut:
+    def _at_most_one_voice_track(self) -> Cut:
         """나레이션과 대사를 한 컷에 같이 넣지 않는다.
 
-        8초 안에 둘 다 넣으면 서로 묻힌다. 관찰자 목소리와 인물 목소리가 겹치면
-        거리두기 구조도 무너진다. 컷마다 둘 중 하나만 고른다.
+        둘 다 넣으면 서로 묻힌다. 관찰자 목소리와 인물 목소리가 겹치면 거리두기
+        구조도 무너진다. 둘 다 없는 컷(무음 컷)은 된다 — 나레이션 글자 수는 컷이 아니라
+        나레이션이 이어지는 구간으로 검사한다(narration_windows).
         """
         has_narration = bool(self.narration and self.narration.strip())
         if has_narration and self.dialogue:
             raise ValueError(
                 "한 컷에 나레이션과 대사를 함께 넣을 수 없다. 둘 중 하나만 쓴다."
             )
-        if not has_narration and not self.dialogue:
-            raise ValueError("컷에는 나레이션이나 대사 중 하나가 반드시 있어야 한다.")
 
         if self.dialogue and len(self.dialogue) < DIALOGUE_MIN_LINES:
             raise ValueError(
@@ -232,6 +226,39 @@ class Storyboard(BaseModel):
     @property
     def total_seconds(self) -> int:
         return sum(c.duration_seconds for c in self.cuts)
+
+    @property
+    def final_seconds(self) -> float:
+        """컷 사이 크로스페이드로 겹친 만큼 뺀 실제 영상 길이."""
+        return self.total_seconds - CROSSFADE_SECONDS * max(len(self.cuts) - 1, 0)
+
+    def narration_windows(self) -> dict[int, float]:
+        """나레이션이 있는 컷 → 그 나레이션이 읽힐 수 있는 시간(초).
+
+        나레이션은 뒤따르는 무음 컷까지 이어서 깔린다. 다음에 나레이션이나 대사가 있는
+        컷이 나오면 거기서 끝난다 — 대사와 겹치지 않는다. 컷이 겹치는 크로스페이드만큼 뺀다.
+        """
+        return narration_windows(
+            [(c.duration_seconds, bool(c.narration), bool(c.dialogue)) for c in self.cuts],
+            [c.index for c in self.cuts],
+        )
+
+
+def narration_windows(
+    cuts: list[tuple[int, bool, bool]], indexes: list[int]
+) -> dict[int, float]:
+    """(컷 길이, 나레이션 여부, 대사 여부) 목록 → {나레이션 컷 번호: 읽힐 수 있는 시간}."""
+    windows: dict[int, float] = {}
+    for pos, (seconds, narrated, _) in enumerate(cuts):
+        if not narrated:
+            continue
+        span = [seconds]
+        for nxt_seconds, nxt_narrated, nxt_dialogue in cuts[pos + 1 :]:
+            if nxt_narrated or nxt_dialogue:
+                break
+            span.append(nxt_seconds)
+        windows[indexes[pos]] = sum(span) - CROSSFADE_SECONDS * len(span)
+    return windows
 
 
 # --- 가드레일 ---------------------------------------------------------------

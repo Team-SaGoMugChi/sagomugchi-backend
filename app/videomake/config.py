@@ -27,6 +27,15 @@ NARRATION_CHARS_PER_SECOND = 5
 # 컷 시작 0.4초 뒤에 목소리가 들어오고(compose.NARRATION_DELAY_MS) 끝에 숨 쉴 틈을 남긴다.
 NARRATION_MARGIN_SECONDS = 0.8
 
+# 컷과 컷 사이를 겹쳐 넘기는 시간(초). 짧은 컷이 툭툭 끊겨 보이지 않게 한다.
+# 컷이 겹치는 만큼 영상 전체가 짧아지므로 나레이션 글자 수 계산에도 들어간다.
+CROSSFADE_SECONDS = 0.3
+
+# 나레이션도 대사도 없는 컷(화면만 보여주는 컷)은 이 길이만 쓴다. 릴스처럼 짧게 넘어간다.
+SILENT_CUT_SECONDS = 4
+# 무음 컷이 이보다 많이 이어지면 이야기가 끊긴다.
+MAX_SILENT_RUN = 2
+
 # 대사는 Veo가 직접 발화한다. 스파이크에서 8초에 18자 + 12자가 여유 있게 들어갔고
 # 말 사이 공백까지 필요하므로 총량을 이 선에서 막는다. 짧은 컷은 길이에 비례해 줄인다.
 DIALOGUE_MAX_CHARS = 40
@@ -39,9 +48,15 @@ DIALOGUE_MIN_SECONDS = 6
 DIALOGUE_MIN_LINES = 2
 
 
+def narration_chars_for_window(window: float) -> int:
+    """나레이션이 읽힐 수 있는 시간(초)에 들어가는 글자 수."""
+    return max(0, int(NARRATION_CHARS_PER_SECOND * (window - NARRATION_MARGIN_SECONDS)))
+
+
 def narration_max_chars(seconds: int) -> int:
-    """컷 길이(초)에 맞는 나레이션 글자 수 상한(4초 16자, 6초 26자, 8초 36자)."""
-    return int(NARRATION_CHARS_PER_SECOND * (seconds - NARRATION_MARGIN_SECONDS))
+    """무음 컷이 뒤따르지 않는 컷 하나의 나레이션 글자 수 상한(4초 14자, 6초 24자, 8초 34자).
+    다음 컷과 겹치는 시간(크로스페이드)만큼 빠진다."""
+    return narration_chars_for_window(seconds - CROSSFADE_SECONDS)
 
 
 def dialogue_max_chars(seconds: int) -> int:

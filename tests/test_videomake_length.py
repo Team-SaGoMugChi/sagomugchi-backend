@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from app.services.video_job import VideoJobManager
 from app.videomake.config import Settings
+from app.videomake.guardrails import lint_cut
 from app.videomake.job import JobStore
 from app.videomake.models import Cut, DiaryInput
 from app.videomake.prompts import get_prompts
@@ -30,7 +31,7 @@ class _SequenceLLM:
         return draft, LLMResult(raw_json=draft.model_dump_json())
 
 
-# 8초 컷에 맞는 분량(4초 상한 16자를 넘고 8초 상한 36자 안).
+# 8초 컷에 맞는 분량(4초 상한 14자를 넘고 8초 상한 34자 안).
 LONG_NARRATION = "그는 노트를 덮고 창밖을 한참 바라봤어요."
 
 
@@ -90,13 +91,16 @@ def test_unsupported_cut_length_is_rejected_by_schema():
         _StoryboardDraft.model_validate(payload)
 
 
-@pytest.mark.parametrize(("seconds", "limit"), [(4, 16), (6, 26), (8, 36)])
+@pytest.mark.parametrize(("seconds", "limit"), [(4, 14), (6, 24), (8, 34)])
 def test_narration_limit_follows_cut_length(seconds, limit):
-    Cut(index=1, image_prompt="i", motion_prompt="m", narration="가" * limit,
-        duration_seconds=seconds)
-    with pytest.raises(ValidationError, match=f"{seconds}초 컷 상한 {limit}자"):
-        Cut(index=1, image_prompt="i", motion_prompt="m", narration="가" * (limit + 1),
-            duration_seconds=seconds)
+    """무음 컷이 뒤따르지 않으면 그 컷 길이(크로스페이드만큼 빼고)가 나레이션 구간이다."""
+    def too_long(text):
+        cut = Cut(index=1, image_prompt="i", motion_prompt="m", narration=text,
+                  duration_seconds=seconds)
+        return [v for v in lint_cut(cut, "지훈") if v.field.endswith("narration") and "자 이내" in v.rule]
+
+    assert too_long("가" * (limit - 1) + "요") == []
+    assert too_long("가" * limit + "요")
 
 
 def test_dialogue_needs_at_least_six_seconds():
@@ -113,7 +117,7 @@ def test_prompt_states_length_ranges_and_per_length_limits():
     assert "3~10개" in system
     assert "4 / 6 / 8초 중 하나만" in system
     assert "12~40초" in system
-    assert "4초 16자 / 6초 26자 / 8초 36자" in system
+    assert "4초 14자 / 6초 24자 / 8초 34자" in system
     assert "6초 30자 / 8초 40자" in system
     assert "{{" not in system
 
@@ -137,11 +141,11 @@ def test_job_progress_counts_cuts_from_storyboard(tmp_path):
 
 def test_eight_second_cut_with_four_second_narration_is_fed_back():
     padded = _payload([4, 4, 8])
-    padded["cuts"][2]["narration"] = "민수는 웃으며 집에 갔어요"  # 14자 — 4초(16자)면 된다
+    padded["cuts"][2]["narration"] = "민수는 웃으며 집에 갔어요"  # 14자 — 4초(14자)면 된다
     sb, llm = _plan(padded, _payload([4, 4, 4]))
 
     assert sb.total_seconds == 12
-    assert "8초 컷인데 나레이션이 14자로 4초 상한(16자) 안이다" in llm.users[1]
+    assert "8초 컷인데 나레이션이 14자로 4초 상한(14자) 안이다" in llm.users[1]
 
 
 def test_near_cap_lists_cuts_that_four_seconds_would_fit():
@@ -176,6 +180,6 @@ def test_prompt_ties_length_to_content_and_ending_to_last_emotion():
     system = llm.systems[0]
 
     assert "상한은 목표가 아니다" in system
-    assert "**4초(기본)**: 나레이션이 4초 상한(16자) 안에" in system
+    assert "**4초(기본)**: 대부분의 컷" in system
     assert "일기의 마지막 감정" in system
     assert "가장 넓은 샷" not in system

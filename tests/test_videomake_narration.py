@@ -1,9 +1,10 @@
 """나레이션 말투(해요체)와 인지왜곡 기준. LLM은 가짜라 비용 0."""
 
+from app.videomake.config import Settings
 from app.videomake.guardrails import lint_name_repetition, lint_narration
 from app.videomake.prompts import get_prompts
 from app.videomake.providers import fake
-from app.videomake.stages.storyboard import _StoryboardDraft
+from app.videomake.stages.storyboard import _StoryboardDraft, system_prompt
 
 
 def _rules(violations):
@@ -23,13 +24,7 @@ def test_literary_endings_are_fed_back():
 
 def _system():
     p = get_prompts()
-    return p.render(
-        "storyboard_planner.system.md",
-        min_cuts=3, max_cuts=10, min_total_seconds=12, max_total_seconds=40,
-        cut_durations=(4, 6, 8), narration_limits={4: 14, 6: 21, 8: 28}, dialogue_limits={},
-        dialogue_min_seconds=6, distancing_rules=p.distancing_rules,
-        protagonist_hint="주인공", dialogue_max_lines=3, dialogue_min_lines=2,
-    )
+    return system_prompt(p, Settings(_env_file=None))
 
 
 def test_planner_writes_warm_narration_not_a_therapy_case():

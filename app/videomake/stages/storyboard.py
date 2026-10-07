@@ -15,13 +15,17 @@ from typing import Literal
 from pydantic import BaseModel, Field, ValidationError
 
 from ..config import (
+    CROSSFADE_SECONDS,
     CUT_DURATIONS,
+    MAX_SILENT_RUN,
+    SILENT_CUT_SECONDS,
     DIALOGUE_MAX_LINES,
     DIALOGUE_MIN_LINES,
     DIALOGUE_MIN_SECONDS,
     CutSeconds,
     Settings,
     dialogue_max_chars,
+    narration_chars_for_window,
     narration_max_chars,
 )
 from ..errors import GuardrailViolation
@@ -134,7 +138,7 @@ class _StoryboardDraft(BaseModel):
             padded = [
                 pos
                 for pos, c in enumerate(self.cuts, start=1)
-                if c.duration_seconds > 4 and not c.dialogue and len(c.narration) <= short
+                if c.duration_seconds > 4 and c.narration and len(c.narration) <= short
             ]
             if padded:
                 out.append(
@@ -172,15 +176,9 @@ class _StoryboardDraft(BaseModel):
         )
 
 
-async def plan_storyboard(
-    diary: DiaryInput,
-    *,
-    llm: LLMProvider,
-    prompts: PromptLibrary,
-    settings: Settings,
-    job: JobStore | None = None,
-) -> Storyboard:
-    system = prompts.render(
+def system_prompt(prompts: PromptLibrary, settings: Settings, protagonist_hint: str = "주인공") -> str:
+    """스토리보드 LLM 시스템 프롬프트. 길이·글자 수 규칙의 숫자를 설정에서 채운다."""
+    return prompts.render(
         "storyboard_planner.system.md",
         min_cuts=settings.min_cuts,
         max_cuts=settings.max_cuts,
@@ -192,11 +190,26 @@ async def plan_storyboard(
             d: dialogue_max_chars(d) for d in CUT_DURATIONS if d >= DIALOGUE_MIN_SECONDS
         },
         dialogue_min_seconds=DIALOGUE_MIN_SECONDS,
+        silent_cut_seconds=SILENT_CUT_SECONDS,
+        max_silent_run=MAX_SILENT_RUN,
+        # 예시: 4초 나레이션 컷 뒤에 4초 무음 컷이 이어질 때 그 나레이션이 쓸 수 있는 글자 수.
+        spanning_example_chars=narration_chars_for_window(8 - 2 * CROSSFADE_SECONDS),
         distancing_rules=prompts.distancing_rules,
-        protagonist_hint=diary.protagonist_name or "주인공",
+        protagonist_hint=protagonist_hint,
         dialogue_max_lines=DIALOGUE_MAX_LINES,
         dialogue_min_lines=DIALOGUE_MIN_LINES,
     )
+
+
+async def plan_storyboard(
+    diary: DiaryInput,
+    *,
+    llm: LLMProvider,
+    prompts: PromptLibrary,
+    settings: Settings,
+    job: JobStore | None = None,
+) -> Storyboard:
+    system = system_prompt(prompts, settings, diary.protagonist_name or "주인공")
     user = prompts.render(
         "storyboard_planner.user.j2",
         diary_text=diary.text,

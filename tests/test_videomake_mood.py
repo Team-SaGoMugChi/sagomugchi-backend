@@ -13,7 +13,7 @@ from app.videomake.pipeline import Pipeline
 from app.videomake.prompts import get_prompts
 from app.videomake.providers import fake
 from app.videomake.providers.registry import build_fake_providers
-from app.videomake.stages.storyboard import _StoryboardDraft
+from app.videomake.stages.storyboard import _StoryboardDraft, system_prompt
 
 pytestmark = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg 필요")
 
@@ -108,13 +108,7 @@ def test_storyboard_must_choose_a_known_mood():
 
 
 def test_planner_is_told_to_show_joy_where_the_diary_was_happy():
-    system = get_prompts().render(
-        "storyboard_planner.system.md",
-        min_cuts=3, max_cuts=10, min_total_seconds=12, max_total_seconds=40,
-        cut_durations=(4, 6, 8), narration_limits={4: 14, 6: 21, 8: 28}, dialogue_limits={},
-        dialogue_min_seconds=6, distancing_rules=get_prompts().distancing_rules,
-        protagonist_hint="주인공", dialogue_max_lines=3, dialogue_min_lines=2,
-    )
+    system = system_prompt(get_prompts(), Settings(_env_file=None))
 
     assert "### mood" in system
     assert "반드시 기쁨" in system
