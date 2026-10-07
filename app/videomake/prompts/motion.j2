@@ -5,9 +5,15 @@ Any camera movement is very slow and minimal.
 {% if dialogue %}
 There are exactly {{ dialogue | map(attribute='speaker') | unique | list | length }} different speaking voices in this scene. Each voice is distinct.
 {% for line in dialogue %}
-{% if loop.first %}FIRST{% else %}THEN{% endif %}, {{ line.speaker }} speaks{% if line.voice %}. Their voice is {{ line.voice }}{% endif %}.
-Their lips move naturally in sync as they say in Korean: "{{ line.text }}"
-While {{ line.speaker }} speaks, everyone else stays silent with their mouth closed.
+{% if line.position -%}
+{% if loop.first %}FIRST{% else %}THEN{% endif %}, the person on the {{ line.position }} side of the frame{% if line.look %} ({{ line.look }}){% endif %} speaks{% if line.voice %}. Their voice is {{ line.voice }}{% endif %}.
+Only that person's lips move, naturally in sync, as they say in Korean: "{{ line.text }}"
+While they speak, everyone else stays silent with their mouth closed.
+{% else -%}
+{% if loop.first %}FIRST{% else %}THEN{% endif %}, an off-screen voice that is not anyone in the frame speaks (for example through a phone){% if line.voice %}. The voice is {{ line.voice }}{% endif %}.
+It says in Korean: "{{ line.text }}"
+Nobody in the frame moves their lips for this line; they only listen.
+{% endif -%}
 {% endfor %}
 These are the ONLY words spoken in this shot. Nobody says anything else.
 After the last line, everyone closes their mouth and stays completely silent

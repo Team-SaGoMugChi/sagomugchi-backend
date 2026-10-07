@@ -30,6 +30,10 @@ CameraDistance = Literal["wide", "full", "medium"]
 # 영상의 분위기가 이 값을 따른다(prompts/mood.j2). 일기 장면의 감정이 영상에 드러나게 한다.
 CutMood = Literal["기쁨", "슬픔", "분노", "불안", "상처", "당황", "평온"]
 
+# 화면 속 인물 위치. 그림에서 인물을 그 자리에 두고, 대사 컷에서 Veo에게 "누가" 말하는지를
+# 이름이 아니라 위치와 외모로 알려준다(Veo는 이름만으로 누가 누구인지 모른다).
+ScreenPosition = Literal["left", "center", "right"]
+
 
 class Stage(str, Enum):
     STORYBOARD = "storyboard"
@@ -85,6 +89,13 @@ class LocationProfile(BaseModel):
     )
 
 
+class CastMember(BaseModel):
+    """컷 화면에 보이는 이름 있는 인물과 그 위치."""
+
+    name: str = Field(description="protagonist나 supporting에 정의된 이름")
+    position: ScreenPosition = Field(description="화면 속 위치: left / center / right")
+
+
 class Distortion(BaseModel):
     """인지왜곡. 사실과 '느껴진 것'을 구조적으로 분리한다. (연출 원칙 6)"""
 
@@ -115,6 +126,9 @@ class Cut(BaseModel):
     mood: CutMood = "평온"
     # 스토리보드 locations의 name. 없으면 image_prompt만으로 장소를 그린다.
     location: str | None = None
+    # 화면에 보이는 인물. 비어 있으면(옛 스토리보드) 주인공만 보인다고 본다.
+    # 전화 속 목소리처럼 화면에 없는 화자는 넣지 않는다.
+    cast: list[CastMember] = Field(default_factory=list)
 
     @property
     def is_dialogue(self) -> bool:
@@ -198,6 +212,31 @@ class Storyboard(BaseModel):
                         f"정의된 인물: {sorted(known)}"
                     )
         return self
+
+    @model_validator(mode="after")
+    def _cast_is_defined(self) -> Storyboard:
+        """화면 속 인물은 정의된 인물이어야 하고, 한 컷에 같은 사람이 두 번 나오지 않는다."""
+        known = {c.name for c in self.characters}
+        for cut in self.cuts:
+            names = [m.name for m in cut.cast]
+            unknown = [n for n in names if n not in known]
+            if unknown:
+                raise ValueError(
+                    f"컷 {cut.index}의 인물 {unknown}이 인물 목록에 없다. 정의된 인물: {sorted(known)}"
+                )
+            if len(names) != len(set(names)):
+                raise ValueError(f"컷 {cut.index}의 cast에 같은 인물이 두 번 있다.")
+        return self
+
+    def visible_cast(self, cut: Cut) -> list[CastMember]:
+        """그 컷 화면에 보이는 인물. cast가 비어 있으면 주인공 혼자 가운데에 있다고 본다."""
+        return cut.cast or [CastMember(name=self.protagonist.name, position="center")]
+
+    @property
+    def on_screen_supporting(self) -> list[CharacterProfile]:
+        """한 번이라도 화면에 나오는 조연 — 캐릭터 시트를 만든다(전화 속 목소리 등은 제외)."""
+        shown = {m.name for c in self.cuts for m in c.cast}
+        return [c for c in self.supporting if c.name in shown]
 
     @model_validator(mode="after")
     def _locations_are_defined(self) -> Storyboard:

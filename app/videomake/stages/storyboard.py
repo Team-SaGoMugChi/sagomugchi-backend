@@ -34,6 +34,7 @@ from ..handoff import storyboard_context
 from ..job import JobStore
 from ..models import (
     CharacterProfile,
+    CastMember,
     Cut,
     CutMood,
     DiaryInput,
@@ -92,6 +93,8 @@ class _CutDraft(BaseModel):
     mood: CutMood
     # locations에 정의한 장소 이름. 같은 장소의 컷은 같은 곳으로 그려진다.
     location: str
+    # 화면에 보이는 이름 있는 인물과 위치. 화면에 없는 화자(전화 등)는 넣지 않는다.
+    cast: list[CastMember]
 
 
 class _StoryboardDraft(BaseModel):
@@ -161,6 +164,7 @@ class _StoryboardDraft(BaseModel):
             duration_seconds=c.duration_seconds,
             mood=c.mood,
             location=c.location,
+            cast=c.cast,
         )
 
     def to_storyboard(self) -> Storyboard:

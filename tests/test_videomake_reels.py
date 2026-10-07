@@ -94,7 +94,8 @@ def test_prompt_asks_for_reels_rhythm_and_varied_camera():
     assert "릴스·쇼츠처럼 짧은 컷으로" in system
     assert "많아야 하나" in system
     assert "### 무음 컷" in system
-    assert "카메라 위치와 방향을 매번 바꾼다" in system
+    assert "바라보는 쪽을 매번 바꾼다" in system
+    assert "### cast" in system
     assert "4초 나레이션 컷 뒤에 4초 무음 컷이 하나 이어지면 33자" in system
 
 

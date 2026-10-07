@@ -79,6 +79,7 @@ def demo_storyboard_payload(n_cuts: int, seconds: int = 4) -> dict:
                 "duration_seconds": seconds,
                 "mood": "평온",
                 "location": "회의실",
+                "cast": [{"name": "지훈", "position": "center"}],
             }
             for i in range(1, n_cuts + 1)
         ],

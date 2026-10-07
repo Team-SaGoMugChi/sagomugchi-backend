@@ -71,7 +71,7 @@ def _run(tmp_path):
 
 def test_each_cut_mood_reaches_image_and_video_prompts(tmp_path):
     sb, image_prompts, video_prompts = _run(tmp_path)
-    cut_prompts = image_prompts[1:]  # 첫 번째는 캐릭터 시트
+    cut_prompts = [p for p in image_prompts if "SCENE:" in p]  # 시트 프롬프트는 뺀다
 
     assert [c.mood for c in sb.cuts] == MOODS
     assert "calm and at ease" in cut_prompts[0]
@@ -91,9 +91,10 @@ def test_fixed_gloom_is_gone_from_every_prompt(tmp_path):
         assert "restrained" not in prompt
         assert "mouth is closed" not in prompt
     # 과장 금지는 남는다.
-    assert all("never exaggerated" in p for p in image_prompts[1:])
+    cut_prompts = [p for p in image_prompts if "SCENE:" in p]
+    assert all("never exaggerated" in p for p in cut_prompts)
     # 그림 모델에 한글이 들어가면 글자로 찍힐 수 있다 — 감정 이름은 넣지 않는다.
-    assert all(m not in p for m in MOODS for p in image_prompts[1:])
+    assert all(m not in p for m in MOODS for p in cut_prompts)
 
 
 def test_storyboard_must_choose_a_known_mood():

@@ -274,6 +274,22 @@ def lint_silent_cuts(sb: Storyboard) -> list[Violation]:
     return out
 
 
+def lint_cast(sb: Storyboard) -> list[Violation]:
+    """한 컷에서 두 사람이 같은 위치에 있으면 대사 컷에서 누가 말하는지 가리킬 수 없다."""
+    out: list[Violation] = []
+    for cut in sb.cuts:
+        positions = [m.position for m in cut.cast]
+        if len(positions) != len(set(positions)):
+            out.append(
+                Violation(
+                    field=f"cut{cut.index}.cast",
+                    rule="한 위치에 한 사람",
+                    detail=f"{[(m.name, m.position) for m in cut.cast]} — 사람마다 left/center/right를 다르게 준다.",
+                )
+            )
+    return out
+
+
 def lint_storyboard(sb: Storyboard) -> list[Violation]:
     out: list[Violation] = []
     names = {c.name for c in sb.characters}
@@ -289,4 +305,5 @@ def lint_storyboard(sb: Storyboard) -> list[Violation]:
         out += lint_english(cut.motion_prompt, f"cut{cut.index}.motion_prompt", names)
     out += lint_name_repetition(sb)
     out += lint_silent_cuts(sb)
+    out += lint_cast(sb)
     return out

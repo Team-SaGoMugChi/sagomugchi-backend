@@ -1,20 +1,32 @@
 Generate a single still frame for an animated short.
 
-The {% if same_place %}first {% endif %}attached image is the character reference sheet for {{ name }}.
-Reproduce {{ name }} with exactly the same face, hair, body proportions, clothing
-and colors as the reference. Do not redesign the character.
-
+ATTACHED REFERENCE IMAGES (in this order):
+{% for m in people -%}
+{{ loop.index }}. Character reference sheet for {{ m.name }}.
+{% endfor -%}
+{% if has_location_sheet -%}
+{{ people | length + 1 }}. Location reference sheet: the same place seen from four sides.
+{% endif %}
+{% for m in people -%}
+Reproduce {{ m.name }} with exactly the same face, hair, body proportions, clothing and colors
+as their character reference sheet. Do not redesign anyone.
+{% endfor %}
 SCENE:
 {{ image_prompt }}
-{% if location %}
+{% if cast | length > 1 %}
+PEOPLE IN THE FRAME:
+{% for m in cast -%}
+{{ m.name }} is on the {{ m.position }} side of the frame.
+{% endfor -%}
+Each person must be clearly distinguishable and stay where listed.
+{% endif %}
+{%- if location %}
 PLACE:
 {{ location.description }}
-{% if same_place -%}
-The second attached image shows this same place. Use it ONLY to recreate the place itself:
-the same layout, floor, walls, windows, furniture and colors.
-Do NOT copy its composition. The camera position, camera angle, framing, and the character's
-pose and position must follow SCENE above, not the second image. A different viewpoint of
-the same place is expected.
+{% if has_location_sheet -%}
+Use the location reference sheet ONLY to know what each side of the place looks like.
+Show the side of the place that SCENE says the camera faces, from the camera position in SCENE.
+Do NOT copy the viewpoint or composition of any panel of the location sheet.
 {% endif -%}
 {% endif %}
 FRAMING:

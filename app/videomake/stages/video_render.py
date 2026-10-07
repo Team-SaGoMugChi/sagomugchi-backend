@@ -55,15 +55,21 @@ async def render_cut_videos(
     async def submit(cut) -> VideoHandle:
         async with sem:
             # 대사 컷은 화자마다 목소리 서술을 붙여야 전원이 같은 목소리로
-            # 말하지 않는다. 인물 정의에서 찾아 붙인다.
-            lines = [
-                {
+            # 말하지 않는다. 또 Veo는 이름만으로 화면 속 누가 그 사람인지 모른다 —
+            # 화면 위치와 외모로 가리켜야 대사가 다른 사람 입에서 나오지 않는다.
+            # 화면에 없는 화자(전화 속 목소리 등)는 화면 밖 목소리로 따로 알린다.
+            positions = {m.name: m.position for m in sb.visible_cast(cut)}
+            lines = []
+            for line in cut.dialogue:
+                profile = sb.character(line.speaker)
+                look = (profile.appearance.split(".")[0].strip() if profile else "")
+                lines.append({
                     "speaker": line.speaker,
                     "text": line.text,
-                    "voice": getattr(sb.character(line.speaker), "voice", ""),
-                }
-                for line in cut.dialogue
-            ]
+                    "voice": getattr(profile, "voice", ""),
+                    "position": positions.get(line.speaker),
+                    "look": look,
+                })
             motion = prompts.render(
                 "motion.j2",
                 motion_prompt=cut.motion_prompt,
