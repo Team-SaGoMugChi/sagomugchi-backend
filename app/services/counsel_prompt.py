@@ -11,9 +11,17 @@
 - 자기 거리두기(Kross·Ayduk), 시간적 거리두기(Bruehlman-Senecal & Ayduk).
 
 프롬프트 구성
-    [기본]        역할·태도·말투·상담 절차·막혔을 때의 대응·금지사항
-    [페르소나]    챗봇 설정(이름·말투·성격)
-    [오늘의 맥락] baseline 대비 멀티모달 신호, 일기 요약, 최근 반복 주제
+    [기본]          역할·태도·말투·상담 절차·사실 근거 원칙·막혔을 때의 대응·금지사항
+    [페르소나]      챗봇 설정(이름·말투·성격)
+    [오늘 일기 사실] 일기 대화에서 사용자가 직접 말한 칸(육하원칙·기분) — handoff
+    [오늘의 맥락]   baseline 대비 멀티모달 신호, 일기 요약, 감정 흐름
+    [지난 상담 주제] 최근 반복 주제가 실제로 있을 때만
+
+할루시네이션 방지
+    ChatGPT 같은 범용 LLM은 대화를 자연스럽게 이으려고 기억·사실을 지어내기 쉽다.
+    상담에서는 "지난번에도 그러셨죠" 같은 지어낸 기억이 신뢰를 크게 깎는다.
+    - 상담봇이 근거로 쓸 수 있는 것을 [이번 대화]·[오늘 일기 사실]·[오늘의 맥락]으로 한정한다.
+    - 과거 상담을 언급하는 예시는 [지난 상담 주제]가 있을 때만 프롬프트에 넣는다.
 
 위기 발화 대응은 `counsel_guardrail.py`가 맡는다. 프롬프트는 LLM이 호출되는
 경우에만 쓰이고, 위기 표현은 그 전에 걸러진다.
@@ -66,9 +74,10 @@ _BASE = """너는 감정 일기 앱의 상담 파트너다.
 
 [상담자처럼 짚어주기 — 진단이 아니라 관찰]
 사용자가 말한 내용 안에서만 근거를 찾아 말한다. 확신하지 말고 확인을 구한다.
-- 패턴: "지난번에도 비슷한 상황에서 스스로를 탓하는 말을 하셨어요.
-  오늘도 비슷하게 느껴지시나요?"
-- 연결: "잠이 줄어든 주에 예민해진다고 하셨는데, 이번 주도 그런 편일까요?"
+- 패턴: "아까도 '내가 부족해서'라고 하셨는데, 지금도 비슷한 생각이 드시나요?"
+  (이번 대화에서 실제로 나온 말만 짚는다)
+- 연결: "잠을 거의 못 잤다고 하셨는데, 그래서 오늘 일이 더 크게 느껴졌을까요?"
+  (같은 대화 안에서 나온 두 이야기를 잇는다)
 - 짧은 설명(심리교육): 한 번에 한 문장까지만. "감정에 이름을 붙이면 그
   감정이 조금 가라앉는다고 알려져 있어요."
 - 작은 실험 제안: 조언이 아니라 확인해볼 거리로 제안한다.
@@ -89,6 +98,18 @@ _BASE = """너는 감정 일기 앱의 상담 파트너다.
 ② 스스로 알아차린 점을 짚어준다.
 ③ 호흡·산책·메모처럼 아주 작은 행동을 하나만 제안한다.
 답을 내지 않고 "오늘은 여기까지만 해도 괜찮다"로 끝내도 된다.
+
+[사실에 근거하기 — 지어내지 않는다]
+- 사실로 다룰 수 있는 것은 세 가지뿐이다: 이번 대화에서 사용자가 한 말,
+  [오늘 일기 사실], [오늘의 맥락]. 그 밖의 사실은 모르는 것이다.
+- 사람·장소·시간·사건의 세부를 새로 만들지 않는다. 모르면 묻는다.
+- 지난 대화나 과거 상담을 기억하는 것처럼 말하지 않는다.
+  ([지난 상담 주제]가 주어진 경우에만 그 주제를 조심스럽게 언급할 수 있다.)
+- [오늘 일기 사실]에 이미 있는 내용을 처음 듣는 것처럼 다시 묻지 않는다.
+- 감정 분석과 표정·목소리 신호는 추정이다. "~처럼 보였어요" 정도로만 말하고,
+  사용자가 아니라고 하면 바로 사용자의 말을 따른다.
+- 연구 결과·통계·수치를 인용하지 않는다. 심리교육은 일반적인 한 문장까지만.
+- 짐작으로 말할 때는 짐작이라고 밝히고 확인을 구한다.
 
 [하지 않을 것]
 - 진단명을 말하거나 약을 언급하지 않는다.
@@ -118,6 +139,36 @@ def _describe_emotions(emotions: dict[str, float]) -> str:
     return ", ".join(labels)
 
 
+# 일기 대화 칸 → 프롬프트에 보여줄 이름. 순서도 이대로 쓴다.
+# 키는 app/services/diary_interview.py의 SLOTS와 같다.
+_SLOT_LABELS: dict[str, str] = {
+    "무엇을": "무슨 일",
+    "언제": "언제",
+    "어디서": "어디서",
+    "누가": "함께한 사람",
+    "어떻게": "어떻게 흘러갔는지",
+    "왜": "사용자가 생각하는 이유",
+    "그때 기분": "그때 기분",
+    "기분 변화": "기분 변화",
+    "지금 기분": "지금 기분",
+}
+
+
+def _describe_slots(slots: dict[str, str]) -> list[str]:
+    """채워진 칸만 정해진 순서로. 모르는 키는 뒤에 그대로 붙인다."""
+    lines = [
+        f"- {label}: {slots[key]}"
+        for key, label in _SLOT_LABELS.items()
+        if slots.get(key)
+    ]
+    lines += [
+        f"- {key}: {value}"
+        for key, value in slots.items()
+        if key not in _SLOT_LABELS and value
+    ]
+    return lines
+
+
 def build_system_prompt(
     persona: dict | None = None,
     psych_profile: dict | None = None,
@@ -126,6 +177,8 @@ def build_system_prompt(
     signals: list[str] | None = None,
     diary_summary: str | None = None,
     recent_themes: list[str] | None = None,
+    slots: dict[str, str] | None = None,
+    emotion_arc: str | None = None,
 ) -> str:
     """상담 한 턴에 쓸 시스템 프롬프트를 만든다.
 
@@ -137,6 +190,9 @@ def build_system_prompt(
                     예: ["말 속도가 평소보다 느림", "목소리 높이가 낮음"].
     [diary_summary] 오늘 일기(Step2 확정본)의 요약. 영상 시나리오의 재료이기도 하다.
     [recent_themes] 최근 상담에서 반복된 주제. 예: ["자기 비난", "수면 부족"].
+                    있을 때만 과거 상담을 언급하는 지침을 넣는다.
+    [slots]         일기 대화에서 사용자가 직접 말한 칸(육하원칙·기분). handoff 재료.
+    [emotion_arc]   일기 속 감정 흐름 한 줄. handoff 재료.
     """
     parts = [_BASE]
 
@@ -165,15 +221,25 @@ def build_system_prompt(
             "감정·행동·정신건강 상태를 추측하지 않는다."
         )
 
+    fact_lines = _describe_slots(slots) if slots else []
+    if fact_lines:
+        parts.append(
+            "[오늘 일기 사실 — 사용자가 직접 말한 내용]\n"
+            + "\n".join(fact_lines)
+            + "\n사용자가 일기 대화에서 말한 그대로다. 이미 들은 내용을 처음 듣는 것처럼 "
+            "다시 묻지 않고, 여기 없는 세부를 지어내지 않는다. 비어 있는 부분은 필요할 때 "
+            "자연스럽게 묻는다."
+        )
+
     context: list[str] = []
     if diary_summary:
         context.append(f"- 오늘 일기 요약: {diary_summary}")
+    if emotion_arc:
+        context.append(f"- 일기 속 감정 흐름: {emotion_arc}")
     if emotions:
         context.append(f"- 분석된 감정: {_describe_emotions(emotions)}")
     if signals:
         context.append("- 평소 기준 대비 변화: " + ", ".join(signals))
-    if recent_themes:
-        context.append("- 최근 반복된 주제: " + ", ".join(recent_themes))
 
     if context:
         parts.append(
@@ -183,6 +249,16 @@ def build_system_prompt(
             "첫 인사에서 이 맥락을 활용해 사용자가 답하기 쉬운 한 가지를 먼저 물어본다. "
             "예: '오늘은 말이 조금 느려지셨던 것 같아요. 피곤한 하루였을까요?' "
             "사용자가 말한 감정이 분석과 다르면 언제나 사용자의 말을 따른다."
+        )
+
+    if recent_themes:
+        parts.append(
+            "[지난 상담 주제]\n"
+            "최근 상담에서 반복된 주제: " + ", ".join(recent_themes) + ".\n"
+            "오늘 이야기와 이어질 때만 한 번 조심스럽게 짚는다. "
+            "예: '지난 상담에서도 스스로를 탓하는 이야기가 있었는데, 오늘도 비슷하게 "
+            "느껴지시나요?' 주제 이름만 알고 있으므로, 그때의 구체적인 사건이나 말은 "
+            "지어내지 않는다."
         )
 
     if incongruent:
