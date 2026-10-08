@@ -58,6 +58,9 @@ async def counsel_turn(payload: CounselTurnRequest) -> CounselTurnResponse:
         signals=context.signals,
         diary_summary=context.diary_summary,
         recent_themes=context.recent_themes,
+        # 일기 대화에서 사용자가 직접 말한 사실 — 더미로 채우지 않는다.
+        slots=payload.slots,
+        emotion_arc=payload.emotion_arc,
     )
     # CAUTION은 상담을 멈추지 않고, 상담봇이 맥락을 보고 한 번 더 확인하게 한다.
     if risk.level is RiskLevel.CAUTION:
@@ -88,5 +91,6 @@ async def counsel_report_create(payload: CounselReportRequest) -> CounselReport:
         messages=_to_openai_messages(payload.messages),
         emotions=payload.emotions,
         diary_summary=payload.diary_summary,
+        slots=payload.slots,
     )
     return CounselReport(**report)
