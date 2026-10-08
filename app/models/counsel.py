@@ -57,6 +57,29 @@ class PsychProfile(BaseModel):
         return self
 
 
+_SLOT_MAX_ITEMS = 12
+_SLOT_MAX_CHARS = 300
+
+
+def _clean_slots(value: dict[str, str | None] | None) -> dict[str, str] | None:
+    """일기 대화 칸에서 빈 칸을 버리고 길이를 제한한다.
+
+    값은 사용자가 말한 그대로라서 내용은 고치지 않는다. 너무 긴 값만 잘라
+    프롬프트가 한 칸에 잠식되지 않게 한다.
+    """
+    if value is None:
+        return None
+    if len(value) > _SLOT_MAX_ITEMS:
+        raise ValueError(f"slots must have at most {_SLOT_MAX_ITEMS} items")
+    cleaned: dict[str, str] = {}
+    for key, text in value.items():
+        key = (key or "").strip()
+        text = (text or "").strip()
+        if key and text:
+            cleaned[key[:20]] = text[:_SLOT_MAX_CHARS]
+    return cleaned or None
+
+
 class CounselMessage(BaseModel):
     speaker: str = Field(..., description="'user' 또는 'oddo'")
     text: str
@@ -88,6 +111,22 @@ class CounselTurnRequest(BaseModel):
         False, description="말로 표현한 감정과 표정·음성이 어긋난다고 분석된 경우"
     )
 
+    # 일기 대화(handoff `oddo.counsel_context.v1`)에서 넘어오는 사실 재료.
+    # 상담봇이 사용자가 실제로 한 말에만 근거해 대화하도록 쓴다.
+    slots: dict[str, str | None] | None = Field(
+        None,
+        description="일기 대화에서 사용자가 말한 칸(육하원칙·그때 기분·기분 변화·지금 기분). "
+        "빈 칸은 null",
+    )
+    emotion_arc: str | None = Field(
+        None, max_length=300, description="일기 속 감정 흐름 한 줄 (handoff)"
+    )
+
+    @field_validator("slots")
+    @classmethod
+    def validate_slots(cls, value: dict[str, str | None] | None):
+        return _clean_slots(value)
+
 
 class CounselTurnResponse(BaseModel):
     reply: str
@@ -105,6 +144,14 @@ class CounselReportRequest(BaseModel):
         None, description="Step2 fusion의 감정 라벨별 점수(0~100)"
     )
     diary_summary: str | None = Field(None, description="오늘 일기(Step2 확정본)의 요약")
+    slots: dict[str, str | None] | None = Field(
+        None, description="일기 대화에서 사용자가 말한 칸 — 리포트 근거 확인용"
+    )
+
+    @field_validator("slots")
+    @classmethod
+    def validate_slots(cls, value: dict[str, str | None] | None):
+        return _clean_slots(value)
 
 
 class CounselReport(BaseModel):
