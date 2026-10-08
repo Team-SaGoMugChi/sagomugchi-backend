@@ -25,12 +25,19 @@ def chat(
     *,
     temperature: float = 0.7,
     max_tokens: int = 300,
+    json_mode: bool = False,
 ) -> str:
-    """시스템 프롬프트 + 대화 기록 → 답변 한 턴."""
+    """시스템 프롬프트 + 대화 기록 → 답변 한 턴.
+
+    [json_mode] True면 모델이 JSON 객체만 출력하도록 강제한다(OpenAI JSON mode).
+                시스템 프롬프트에 'JSON'이라는 말이 들어 있어야 한다.
+    """
+    extra = {"response_format": {"type": "json_object"}} if json_mode else {}
     response = _client().chat.completions.create(
         model=get_settings().llm_model,
         temperature=temperature,
         max_tokens=max_tokens,
         messages=[{"role": "system", "content": system_prompt}, *messages],
+        **extra,
     )
     return (response.choices[0].message.content or "").strip()
