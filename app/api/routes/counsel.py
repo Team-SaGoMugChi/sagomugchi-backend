@@ -6,7 +6,7 @@ from app.models.counsel import (
     CounselTurnRequest,
     CounselTurnResponse,
 )
-from app.services import counsel_context, counsel_report, llm_client
+from app.services import counsel_context, counsel_output_check, counsel_report, llm_client
 from app.services.counsel_guardrail import (
     CAUTION_GUIDE,
     CRISIS_REPLY,
@@ -73,10 +73,21 @@ async def counsel_turn(payload: CounselTurnRequest) -> CounselTurnResponse:
         reply = llm_client.chat(system_prompt, messages)
     except Exception:
         # 키 미설정·네트워크 오류 등 — 앱이 멈추지 않도록 폴백.
-        reply = _FALLBACK
+        return CounselTurnResponse(
+            reply=_FALLBACK, used_dummy_context=context.used_dummy
+        )
+
+    # 응답 검증 레이어 — 보내기 전에 규칙 위반을 검사하고, 어기면 한 번 다시 쓴다.
+    checked = counsel_output_check.verify(
+        reply or _FALLBACK,
+        regenerate=lambda feedback: llm_client.chat(system_prompt + feedback, messages),
+        user_texts=[m.text for m in payload.history if m.speaker == "user"]
+        + [payload.user_text],
+        has_recent_themes=bool(context.recent_themes),
+    )
 
     return CounselTurnResponse(
-        reply=reply or _FALLBACK,
+        reply=checked.reply,
         used_dummy_context=context.used_dummy,
     )
 
