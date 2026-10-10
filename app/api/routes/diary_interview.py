@@ -9,16 +9,17 @@ from app.models.diary_interview import (
     RefineResponse,
 )
 from app.services import diary_interview, diary_refine
-from app.services.counsel_guardrail import CRISIS_REPLY, is_crisis
+from app.services.counsel_guardrail import RiskLevel, assess, crisis_reply
 
 router = APIRouter(prefix="/diary", tags=["diary"])
 
 
 @router.post("/interview/turn", response_model=InterviewTurnResponse)
 async def interview_turn(payload: InterviewTurnRequest) -> InterviewTurnResponse:
-    # 위기 발화는 상담과 같은 기준으로 LLM에 보내지 않고 정해진 안내로 응답한다.
-    if is_crisis(payload.user_text):
-        return InterviewTurnResponse(reply=CRISIS_REPLY, crisis=True)
+    # 위기 발화는 상담과 같은 기준으로 LLM에 보내지 않고 축에 맞는 안내로 응답한다.
+    risk = assess(payload.user_text)
+    if risk.level is RiskLevel.CRISIS:
+        return InterviewTurnResponse(reply=crisis_reply(risk), crisis=True)
 
     turn = await run_in_threadpool(
         diary_interview.next_turn, payload.history, payload.user_text

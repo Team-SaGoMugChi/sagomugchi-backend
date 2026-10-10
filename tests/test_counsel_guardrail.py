@@ -1,6 +1,15 @@
 import pytest
 
-from app.services.counsel_guardrail import RiskLevel, assess, is_crisis
+from app.services.counsel_guardrail import (
+    CAUTION_GUIDES,
+    CRISIS_REPLIES,
+    RiskAxis,
+    RiskLevel,
+    assess,
+    caution_guide,
+    crisis_reply,
+    is_crisis,
+)
 
 
 @pytest.mark.parametrize(
@@ -79,3 +88,103 @@ def test_caution(text: str) -> None:
 )
 def test_none(text: str) -> None:
     assert assess(text).level is RiskLevel.NONE
+
+
+# ── 자살 축 — 간접 표현 (PR3 평가에서 놓친 말) ──────────────────────────
+@pytest.mark.parametrize(
+    "text",
+    [
+        "요즘은 그냥 아침에 눈 안 떴으면 좋겠어",
+        "다 포기하고 싶어 그냥 끝내버리고 싶다",
+        "내가 죽으면 누가 슬퍼할까",
+        "살아있는 게 의미가 없어",
+        "한강 가고 싶다는 생각이 들어",
+        "그냥 영원히 잠들고 싶다",
+        "살 이유를 모르겠어",
+    ],
+)
+def test_indirect_ideation_is_crisis(text: str) -> None:
+    result = assess(text)
+    assert result.level is RiskLevel.CRISIS, result
+    assert result.axis is RiskAxis.SUICIDE
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "친구가 요즘 죽고 싶다고 해서 걱정돼",  # 남의 말 전달
+        "죽고 싶다까지는 아닌데 힘들어",  # 부정
+        "옛날에 죽고 싶었던 적 있는데 지금은 괜찮아",  # 과거
+    ],
+)
+def test_softened_desire_is_caution(text: str) -> None:
+    assert assess(text).level is RiskLevel.CAUTION
+
+
+def test_own_thought_with_family_word_stays_crisis() -> None:
+    # 가족이 나와도 "~다고 느꼈어"는 본인 마음이라 낮추지 않는다.
+    assert assess("엄마가 화내서 죽고 싶다고 느꼈어").level is RiskLevel.CRISIS
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["과제 끝내버리고 싶어", "이번 프로젝트 그냥 끝내버리고 싶어", "한강 뷰 카페 가고 싶어"],
+)
+def test_task_or_place_words_are_not_crisis(text: str) -> None:
+    assert assess(text).level is RiskLevel.NONE
+
+
+# ── 다른 축 ─────────────────────────────────────────────────────────
+@pytest.mark.parametrize(
+    "text, level, axis",
+    [
+        ("지금 남편이 때리고 있어", RiskLevel.CRISIS, RiskAxis.DANGER),
+        ("누가 집 앞까지 따라왔어 무서워", RiskLevel.CRISIS, RiskAxis.DANGER),
+        ("전 남친이 스토킹해서 무서워", RiskLevel.CAUTION, RiskAxis.DANGER),
+        ("칼 들고 걔 찾아갈 거야", RiskLevel.CRISIS, RiskAxis.HARM_OTHERS),
+        ("팀장 진짜 죽이고 싶다", RiskLevel.CAUTION, RiskAxis.HARM_OTHERS),
+        ("목소리가 자꾸 죽으라고 해", RiskLevel.CRISIS, RiskAxis.PSYCHOSIS),
+        ("누가 계속 나를 감시하는 것 같아", RiskLevel.CAUTION, RiskAxis.PSYCHOSIS),
+        ("너밖에 없어 사람들은 다 싫어", RiskLevel.CAUTION, RiskAxis.DEPENDENCE),
+    ],
+)
+def test_other_axes(text: str, level: RiskLevel, axis: RiskAxis) -> None:
+    result = assess(text)
+    assert (result.level, result.axis) == (level, axis), result
+
+
+def test_suicide_method_wins_over_psychosis() -> None:
+    # 명령 환청이 자살 방법을 담으면 자살 축 안내(109)가 우선이다.
+    result = assess("목소리가 창문으로 뛰어내리라고 해")
+    assert (result.level, result.axis) == (RiskLevel.CRISIS, RiskAxis.SUICIDE)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "칼 들고 양파 썰었어",
+        "감기약을 다 먹었어",
+        "강아지가 집까지 따라왔어",
+        "친구한테 맞춰주느라 피곤했어",
+        "목소리가 작다고 크게 말하라고 하셨어",
+    ],
+)
+def test_everyday_words_on_other_axes_are_none(text: str) -> None:
+    assert assess(text).level is RiskLevel.NONE
+
+
+def test_every_crisis_axis_has_reply_with_hotline() -> None:
+    hotlines = {
+        RiskAxis.SUICIDE: "109",
+        RiskAxis.DANGER: "112",
+        RiskAxis.HARM_OTHERS: "1577-0199",
+        RiskAxis.PSYCHOSIS: "1577-0199",
+    }
+    for axis, number in hotlines.items():
+        assert number in CRISIS_REPLIES[axis]
+    assert "112" in crisis_reply(assess("지금 아빠가 때리고 있어"))
+
+
+def test_every_axis_has_caution_guide() -> None:
+    assert set(CAUTION_GUIDES) == set(RiskAxis)
+    assert "오또" in caution_guide(assess("너랑 사귀고 싶어"))
