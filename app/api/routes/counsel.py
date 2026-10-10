@@ -8,10 +8,10 @@ from app.models.counsel import (
 )
 from app.services import counsel_context, counsel_output_check, counsel_report, llm_client
 from app.services.counsel_guardrail import (
-    CAUTION_GUIDE,
-    CRISIS_REPLY,
     RiskLevel,
     assess,
+    caution_guide,
+    crisis_reply,
 )
 from app.services.counsel_prompt import build_system_prompt
 
@@ -32,11 +32,14 @@ def _to_openai_messages(history: list) -> list[dict]:
 
 @router.post("/turn", response_model=CounselTurnResponse)
 async def counsel_turn(payload: CounselTurnRequest) -> CounselTurnResponse:
-    # 위험도 3단계 판정 (기준: docs/CRISIS_POLICY.md).
-    # CRISIS는 LLM에 보내지 않고 정해진 안내로 응답한다.
+    # 위험 축·단계 판정 (기준: docs/CRISIS_POLICY.md).
+    # CRISIS는 LLM에 보내지 않고 축에 맞는 안내(연락처)로 응답한다.
     risk = assess(payload.user_text)
+    risk_axis = risk.axis.value if risk.axis else None
     if risk.level is RiskLevel.CRISIS:
-        return CounselTurnResponse(reply=CRISIS_REPLY, crisis=True)
+        return CounselTurnResponse(
+            reply=crisis_reply(risk), crisis=True, risk_axis=risk_axis
+        )
 
     # baseline·감정 분석·일기 요약. 로컬에서 더미 옵션을 명시적으로 켠
     # 경우에만 누락된 값을 예시 데이터로 채운다.
@@ -64,7 +67,7 @@ async def counsel_turn(payload: CounselTurnRequest) -> CounselTurnResponse:
     )
     # CAUTION은 상담을 멈추지 않고, 상담봇이 맥락을 보고 한 번 더 확인하게 한다.
     if risk.level is RiskLevel.CAUTION:
-        system_prompt += CAUTION_GUIDE
+        system_prompt += caution_guide(risk)
 
     messages = _to_openai_messages(payload.history)
     messages.append({"role": "user", "content": payload.user_text})
@@ -74,7 +77,7 @@ async def counsel_turn(payload: CounselTurnRequest) -> CounselTurnResponse:
     except Exception:
         # 키 미설정·네트워크 오류 등 — 앱이 멈추지 않도록 폴백.
         return CounselTurnResponse(
-            reply=_FALLBACK, used_dummy_context=context.used_dummy
+            reply=_FALLBACK, risk_axis=risk_axis, used_dummy_context=context.used_dummy
         )
 
     # 응답 검증 레이어 — 보내기 전에 규칙 위반을 검사하고, 어기면 한 번 다시 쓴다.
@@ -88,6 +91,7 @@ async def counsel_turn(payload: CounselTurnRequest) -> CounselTurnResponse:
 
     return CounselTurnResponse(
         reply=checked.reply,
+        risk_axis=risk_axis,
         used_dummy_context=context.used_dummy,
     )
 
