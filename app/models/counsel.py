@@ -131,6 +131,9 @@ class CounselTurnRequest(BaseModel):
 class CounselTurnResponse(BaseModel):
     reply: str
     crisis: bool = False
+    # 위험 축 — 앱이 축에 맞는 안내 배너·연락처를 고른다.
+    # suicide | danger | harm_others | psychosis | dependence, 위험이 없으면 null
+    risk_axis: str | None = None
 
     # 지금 응답이 더미 맥락으로 만들어졌는지. 연동 확인용이라 앱 화면에는 쓰지 않는다.
     used_dummy_context: bool = False
