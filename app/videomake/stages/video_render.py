@@ -18,6 +18,7 @@ from ..job import JobStore
 from ..models import Stage, Storyboard, VideoHandle
 from ..prompts import PromptLibrary
 from ..providers.base import VideoProvider
+from .cut_images import mood_subject, solo_listener_side, voice_off_screen
 
 log = logging.getLogger(__name__)
 
@@ -59,8 +60,11 @@ async def render_cut_videos(
             # 화면 위치와 외모로 가리켜야 대사가 다른 사람 입에서 나오지 않는다.
             # 화면에 없는 화자(전화 속 목소리 등)는 화면 밖 목소리로 따로 알린다.
             positions = {m.name: m.position for m in sb.visible_cast(cut)}
+            # 화면 밖 목소리만 있는 컷은 말소리 없이 "듣는" 장면으로 만든다(voice_off_screen).
+            listening = voice_off_screen(sb, cut)
+            speaks = cut.is_dialogue and not listening
             lines = []
-            for line in cut.dialogue:
+            for line in cut.dialogue if speaks else []:
                 profile = sb.character(line.speaker)
                 look = (profile.appearance.split(".")[0].strip() if profile else "")
                 lines.append({
@@ -74,8 +78,11 @@ async def render_cut_videos(
                 "motion.j2",
                 motion_prompt=cut.motion_prompt,
                 dialogue=lines,
+                solo_side=solo_listener_side(sb, cut, sb.visible_cast(cut)),
+                ambient=settings.veo_audio == "ambient",
+                listening=listening,
                 mood_line=prompts.render(
-                    "mood.j2", mood=cut.mood, name=sb.protagonist.name, part="motion"
+                    "mood.j2", mood=cut.mood, name=mood_subject(sb, cut), part="motion"
                 ),
             )
             handle = await video.submit(
@@ -84,7 +91,7 @@ async def render_cut_videos(
                 first_frame=job.cut_image(cut.index),
                 negative_prompt=(
                     prompts.video_negative_prompt_dialogue
-                    if cut.is_dialogue
+                    if speaks
                     else prompts.video_negative_prompt
                 ),
                 aspect_ratio=settings.aspect_ratio,

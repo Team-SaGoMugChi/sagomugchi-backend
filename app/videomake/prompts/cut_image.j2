@@ -20,7 +20,15 @@ PEOPLE IN THE FRAME:
 {% endfor -%}
 Each person must be clearly distinguishable and stay where listed.
 They are with each other: they face each other or turn toward each other at an angle.
-They never stand side by side facing the camera, and nobody looks at the camera.
+They never stand or sit side by side facing the camera, and nobody looks at the camera.
+When seated together, they sit across from or at the corner of the same table.
+{% endif %}
+{%- if solo_side %}
+{{ cast[0].name }} is the only person in the frame, on the {{ cast[0].position }} side of the frame.
+They are talking with someone just outside the frame on the {{ solo_side }} side and look toward
+that side, not at the camera. Leave a little open space on the {{ solo_side }} side of the frame.
+The other person's seat or spot is outside the frame: do not show an empty chair or empty place
+across from them, so it never looks as if they are alone.
 {% endif %}
 {%- if location %}
 PLACE:

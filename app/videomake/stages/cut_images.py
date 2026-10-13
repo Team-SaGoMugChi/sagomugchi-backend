@@ -81,6 +81,67 @@ async def generate_cut_images(
     return dict(pairs)
 
 
+def voice_off_screen(sb: Storyboard, cut: Cut) -> bool:
+    """대사 컷인데 말하는 사람이 모두 화면에 없다(전화 속 목소리 등).
+
+    이런 컷은 Veo에게 말소리를 시키지 않는다 — 말소리를 만들면 화면에 보이는 사람의 입을
+    그 소리에 맞춰 움직였다(듣기만 해야 하는 사람이 말하는 것처럼 보임). 목소리는 더빙이 넣는다."""
+    if not cut.is_dialogue:
+        return False
+    shown = {m.name for m in sb.visible_cast(cut)}
+    return all(line.speaker not in shown for line in cut.dialogue)
+
+
+def mood_subject(sb: Storyboard, cut: Cut) -> str:
+    """감정(표정·자세) 지시를 받을 사람 — 그 컷 화면에 보이는 사람. 주인공이 보이면 주인공,
+    주인공 없이 다른 사람만 보이면 그 사람이다. 아무도 없으면 주인공(장면 분위기).
+    늘 주인공 이름을 쓰면 지수 혼자 나오는 컷에 "민서: hurt"처럼 화면에 없는 사람을 지시했다."""
+    names = [m.name for m in sb.visible_cast(cut)]
+    if not names or sb.protagonist.name in names:
+        return sb.protagonist.name
+    return names[0]
+
+
+def solo_listener_side(sb: Storyboard, cut: Cut, cast: list) -> str | None:
+    """대사 컷에 말하는 사람 혼자 보이면, 화면 밖 상대가 있는 쪽(시선 방향). 아니면 None.
+    화면 왼쪽에 있는 사람은 오른쪽을 본다. 가운데면 오른쪽으로 둔다.
+
+    상대가 그 장소에 실제로 있을 때만이다 — 같은 장소의 다른 컷에 다른 사람이 함께 보인다.
+    전화 통화처럼 혼자 있는 장면에 "화면 밖 상대"를 쓰면 그림 모델이 화면 끝에 엉뚱한
+    사람의 뒷모습을 그렸다."""
+    if not cut.is_dialogue or len(cast) != 1:
+        return None
+    speaker = cast[0].name
+    if speaker not in {line.speaker for line in cut.dialogue}:
+        return None
+    present = any(
+        m.name != speaker
+        for c in sb.cuts
+        if c.location == cut.location
+        for m in c.cast
+    )
+    if not present:
+        return None
+    return "left" if cast[0].position == "right" else "right"
+
+
+def moment_shot(sb: Storyboard, cut: Cut) -> int | None:
+    """혼자 나오는 대사 컷이 참고할 같은 순간의 컷 — 같은 장소에서 말하는 사람이 다른 사람과
+    함께 보이는 가장 가까운 컷(앞 컷 우선). 테이블·의자·컵·옷을 맞추는 데만 쓴다.
+    텍스트만으로는 한 사람 컷의 테이블 모양·색이 두 사람 컷과 달라졌다."""
+    if solo_listener_side(sb, cut, sb.visible_cast(cut)) is None:
+        return None
+    speaker = cut.cast[0].name
+    candidates = [
+        c for c in sb.cuts
+        if c.index != cut.index and c.location == cut.location
+        and len(c.cast) > 1 and speaker in {m.name for m in c.cast}
+    ]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda c: (c.index > cut.index, abs(c.index - cut.index))).index
+
+
 def cut_image_request(
     sb: Storyboard,
     cut: Cut,
@@ -104,8 +165,10 @@ def cut_image_request(
         "cut_image.j2",
         people=people,
         cast=cast,
+        solo_side=solo_listener_side(sb, cut, cast),
         location=sb.location(cut.location),
         has_location_sheet=place_sheet is not None,
+        has_moment_image=moment_image is not None,
         thumbnail=thumbnail,
         image_prompt=cut.image_prompt,
         camera_distance=camera_distance or cut.camera_distance,

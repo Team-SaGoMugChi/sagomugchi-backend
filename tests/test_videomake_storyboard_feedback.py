@@ -37,12 +37,12 @@ def test_all_cut_errors_are_reported_with_cut_numbers():
     payload = _payload()
     line = {"speaker": "지훈", "text": "괜찮아?"}
     payload["cuts"][0]["dialogue"] = [line, line]  # 나레이션과 대사를 함께 씀
-    payload["cuts"][2].update(narration="", dialogue=[line])  # 대사 한 줄뿐
+    payload["cuts"][2].update(narration="", dialogue=[line, line])  # 한 컷에 두 줄
     errors = _StoryboardDraft.model_validate(payload).cut_errors()
 
     assert len(errors) == 2
     assert errors[0].startswith("cut1") and "함께 넣을 수 없다" in errors[0]
-    assert errors[1].startswith("cut3") and "1줄뿐" in errors[1]
+    assert errors[1].startswith("cut3") and "컷을 나눠" in errors[1]
 
 
 def test_cut_index_follows_order_not_llm_value():
