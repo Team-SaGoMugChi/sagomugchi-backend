@@ -21,6 +21,7 @@ from .providers.registry import Providers
 from .stages.character_sheet import build_character_sheet
 from .stages.compose import compose
 from .stages.cut_images import generate_cut_images
+from .stages.dialogue_voice import dub_dialogue
 from .stages.narration import synthesize_narrations
 from .stages.reference_sheets import build_reference_sheets
 from .stages.review import build_review
@@ -159,6 +160,16 @@ class Pipeline:
             force=force,
         )
 
+    async def dub(self, sb: Storyboard, *, force: bool = False) -> dict[int, Path]:
+        return await dub_dialogue(
+            sb,
+            tts=self.p.tts,
+            prompts=self.prompts,
+            settings=self.settings,
+            job=self.job,
+            force=force,
+        )
+
     # --- 한 번에 --------------------------------------------------------------
     async def run_to_gate(
         self, diary: DiaryInput, *, force: bool = False
@@ -190,7 +201,7 @@ class Pipeline:
         except BaseException:
             thumbnail.cancel()
             raise
-        await self.narrate(sb, force=force)
+        await asyncio.gather(self.narrate(sb, force=force), self.dub(sb, force=force))
         final = self.compose(sb)
         try:
             await thumbnail
@@ -226,4 +237,11 @@ class Pipeline:
                 for c in sb.cuts
                 if self.job.cut_narration(c.index).exists()
             }
-        return compose(sb, job=self.job, settings=self.settings, narrations=narrations)
+        dialogues = {
+            c.index: self.job.cut_dialogue(c.index)
+            for c in sb.cuts
+            if c.is_dialogue and self.job.cut_dialogue(c.index).exists()
+        }
+        return compose(
+            sb, job=self.job, settings=self.settings, narrations=narrations, dialogues=dialogues
+        )

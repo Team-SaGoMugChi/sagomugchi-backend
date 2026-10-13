@@ -103,11 +103,19 @@ def test_narration_limit_follows_cut_length(seconds, limit):
     assert too_long("가" * limit + "요")
 
 
-def test_dialogue_needs_at_least_six_seconds():
-    lines = [{"speaker": "지훈", "text": "괜찮아?"}, {"speaker": "수아", "text": "응."}]
-    Cut(index=1, image_prompt="i", motion_prompt="m", dialogue=lines, duration_seconds=6)
-    with pytest.raises(ValidationError, match="6초 이상"):
-        Cut(index=1, image_prompt="i", motion_prompt="m", dialogue=lines, duration_seconds=4)
+def test_dialogue_cut_is_one_line_by_one_person():
+    line = {"speaker": "지훈", "text": "괜찮아?"}
+    Cut(index=1, image_prompt="i", motion_prompt="m", dialogue=[line], duration_seconds=4)
+    with pytest.raises(ValidationError, match="컷을 나눠"):
+        Cut(index=1, image_prompt="i", motion_prompt="m",
+            dialogue=[line, {"speaker": "수아", "text": "응."}], duration_seconds=6)
+
+
+def test_dialogue_line_must_fit_the_cut():
+    line = {"speaker": "지훈", "text": "가" * 15}
+    Cut(index=1, image_prompt="i", motion_prompt="m", dialogue=[line], duration_seconds=6)
+    with pytest.raises(ValidationError, match="상한 14자"):
+        Cut(index=1, image_prompt="i", motion_prompt="m", dialogue=[line], duration_seconds=4)
 
 
 def test_prompt_states_length_ranges_and_per_length_limits():
@@ -118,7 +126,7 @@ def test_prompt_states_length_ranges_and_per_length_limits():
     assert "4 / 6 / 8초 중 하나만" in system
     assert "12~40초" in system
     assert "4초 14자 / 6초 24자 / 8초 34자" in system
-    assert "6초 30자 / 8초 40자" in system
+    assert "4초 14자 / 6초 26자 / 8초 38자" in system
     assert "{{" not in system
 
 

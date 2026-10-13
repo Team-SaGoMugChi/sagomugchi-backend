@@ -51,6 +51,7 @@ def demo_storyboard_payload(n_cuts: int, seconds: int = 4) -> dict:
                 "A man in his late twenties, short black hair, slim build, "
                 "wearing a loose grey knit sweater and dark trousers."
             ),
+            "voice": "calm, mid-pitched, a man in his late twenties",
         },
         "distortions": [],
         "locations": [

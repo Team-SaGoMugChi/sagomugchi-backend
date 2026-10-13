@@ -2,8 +2,14 @@
 
 The camera stays a detached third-person observer at a constant distance.
 Any camera movement is very slow and minimal.
+The colors, white balance, brightness and lighting stay exactly as in the first frame
+for the whole shot. No color grading, tint or exposure change.
+Every object stays solid and in place: anything a person holds stays in the same hand for the
+whole shot, and nothing in the scene appears, disappears or changes shape.
+Only the people and objects already in the first frame are in the shot; no one new enters.
 {% if dialogue %}
 There are exactly {{ dialogue | map(attribute='speaker') | unique | list | length }} different speaking voices in this scene. Each voice is distinct.
+The shot opens with about one second of silence. Nobody speaks before the FIRST line below.
 {% for line in dialogue %}
 {% if line.position -%}
 {% if loop.first %}FIRST{% else %}THEN{% endif %}, the person on the {{ line.position }} side of the frame{% if line.look %} ({{ line.look }}){% endif %} speaks{% if line.voice %}. Their voice is {{ line.voice }}{% endif %}.
@@ -21,15 +27,27 @@ for the remainder of the shot. Do not invent additional dialogue or chatter
 to fill the silence.
 {{ mood_line }} No shouting.
 
-The speakers look at each other while talking, never at the camera.
+{% if solo_side %}The speaker looks toward the other person just outside the frame on the {{ solo_side }} side, never at the camera.
+Only this one person is in the frame.{% else %}The speakers look at each other while talking, never at the camera.{% endif %}
 
 Absolutely no subtitles, captions, letters or any on-screen text appear at any time.
 Audio: only the Korean lines quoted above, quiet ambient room tone underneath.
 No music. No narrator. No background conversation.
 {% else %}
+{% if listening -%}
+The person in the frame is listening to someone who is not in the frame (for example on the phone).
+They only listen: their mouth stays closed and their lips never move for the whole shot.
+{%- else -%}
 The character does not speak and their lips do not move.
+{%- endif %}
 {{ mood_line }}
 
 Absolutely no subtitles, captions, letters or any on-screen text appear at any time.
+{% if ambient -%}
+Audio: only the natural sounds of this scene, matching what happens on screen (for example
+footsteps, street or cafe ambience, cups and dishes), at a quiet, natural level.
+No speech, no voices, no talking in the background, no music.
+{%- else -%}
 Audio: quiet ambient room tone only. No speech, no dialogue, no music.
+{%- endif %}
 {% endif %}

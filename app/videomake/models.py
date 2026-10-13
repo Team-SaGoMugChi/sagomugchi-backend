@@ -154,20 +154,15 @@ class Cut(BaseModel):
             )
 
         if self.dialogue and len(self.dialogue) < DIALOGUE_MIN_LINES:
-            raise ValueError(
-                f"대사가 {len(self.dialogue)}줄뿐이다. 최소 {DIALOGUE_MIN_LINES}줄로 "
-                "주고받아야 한다. 한 줄이면 컷의 남는 시간을 모델이 지어낸 대사로 "
-                "메운다."
-            )
+            raise ValueError(f"대사 컷에는 대사가 {DIALOGUE_MIN_LINES}줄 이상 있어야 한다.")
         if len(self.dialogue) > DIALOGUE_MAX_LINES:
             raise ValueError(
-                f"대사가 {len(self.dialogue)}줄로 상한 {DIALOGUE_MAX_LINES}줄을 넘는다. "
-                f"{self.duration_seconds}초 안에 들어가지 않는다."
+                f"대사가 {len(self.dialogue)}줄이다. 대사 컷은 한 사람이 {DIALOGUE_MAX_LINES}줄만 "
+                "말한다. 주고받는 말은 컷을 나눠 번갈아 보여준다."
             )
         if self.dialogue and self.duration_seconds < DIALOGUE_MIN_SECONDS:
             raise ValueError(
-                f"대사 컷이 {self.duration_seconds}초다. 두 줄 이상 주고받으려면 "
-                f"{DIALOGUE_MIN_SECONDS}초 이상이어야 한다."
+                f"대사 컷이 {self.duration_seconds}초다. {DIALOGUE_MIN_SECONDS}초 이상이어야 한다."
             )
         total = sum(len(line.text) for line in self.dialogue)
         limit = dialogue_max_chars(self.duration_seconds)

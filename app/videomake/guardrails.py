@@ -275,9 +275,24 @@ def lint_silent_cuts(sb: Storyboard) -> list[Violation]:
 
 
 def lint_cast(sb: Storyboard) -> list[Violation]:
-    """한 컷에서 두 사람이 같은 위치에 있으면 대사 컷에서 누가 말하는지 가리킬 수 없다."""
+    """한 컷에서 두 사람이 같은 위치에 있으면 대사 컷에서 누가 말하는지 가리킬 수 없다.
+    대사 컷에서 말하는 사람이 화면에 보이면 화면에는 그 사람만 있어야 한다 — 두 사람이
+    보이면 Veo가 대사를 엉뚱한 사람 입에 붙인다."""
     out: list[Violation] = []
     for cut in sb.cuts:
+        speakers = {line.speaker for line in cut.dialogue}
+        shown = [m.name for m in cut.cast]
+        if speakers & set(shown) and len(shown) > 1:
+            out.append(
+                Violation(
+                    field=f"cut{cut.index}.cast",
+                    rule="대사 컷에는 말하는 사람만 화면에",
+                    detail=(
+                        f"대사 컷인데 화면에 {shown}이 함께 보인다. cast에는 말하는 사람만 두고, "
+                        "상대는 화면 밖에 있다고 image_prompt에 쓴다. 상대의 대답은 다음 컷에서 보여준다."
+                    ),
+                )
+            )
         positions = [m.position for m in cut.cast]
         if len(positions) != len(set(positions)):
             out.append(
@@ -290,9 +305,32 @@ def lint_cast(sb: Storyboard) -> list[Violation]:
     return out
 
 
+def lint_gender(sb: Storyboard) -> list[Violation]:
+    """인물마다 성별이 appearance·voice에 드러나야 한다. 흐리면("young adult") 그림 모델은
+    아무 성별로 그리고 대사 목소리는 다른 성별로 붙을 수 있다."""
+    from .stages.dialogue_voice import voice_gender
+
+    out: list[Violation] = []
+    for c in sb.characters:
+        looks, sounds = voice_gender(c.appearance), voice_gender(c.voice)
+        if looks is None or sounds is None or looks != sounds:
+            out.append(
+                Violation(
+                    field=f"{c.name}.appearance",
+                    rule="인물 성별을 분명히",
+                    detail=(
+                        f"{c.name}의 appearance·voice에서 성별이 같게 드러나지 않는다. "
+                        'man / woman을 둘 다에 쓴다("young adult", "they" 대신).'
+                    ),
+                )
+            )
+    return out
+
+
 def lint_storyboard(sb: Storyboard) -> list[Violation]:
     out: list[Violation] = []
     names = {c.name for c in sb.characters}
+    out += lint_gender(sb)
     for c in sb.characters:
         out += lint_english(c.appearance, f"{c.name}.appearance", names)
         out += lint_english(c.voice, f"{c.name}.voice", names)

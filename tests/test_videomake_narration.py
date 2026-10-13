@@ -91,4 +91,14 @@ def test_planner_keeps_the_cause_and_trusts_the_diary_over_scene_tone():
 def test_planner_does_not_coin_words_to_fit_the_limit():
     system = _system()
     assert "없는 말을 만들지 않는다" in system
-    assert '"집에 가는 길이 가벼웠어요"' in system
+    assert '"집에 가는 발걸음이 가벼웠어요"' in system
+    assert "주어와 서술어가 어울리게" in system
+
+
+def test_planner_keeps_props_time_of_day_and_the_real_ending():
+    """일기에 없는 마무리 감정·사라지는 소지품·낮으로 그려지는 저녁을 막는 규칙."""
+    system = _system()
+    assert "일기에 없는 마무리 감정도 붙이지 않는다" in system
+    assert "소지품을 이어서 적는다" in system
+    assert "시간대를 분명히 쓴다" in system
+    assert "물건을 꺼내거나 집거나 옮기거나 손을 바꿔 드는 동작은 쓰지 않는다" in system

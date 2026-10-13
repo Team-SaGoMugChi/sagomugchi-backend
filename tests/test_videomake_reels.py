@@ -20,7 +20,7 @@ from app.videomake.stages.storyboard import _StoryboardDraft, system_prompt
 
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg 필요")
 
-LINE = [{"speaker": "지훈", "text": "괜찮아?"}, {"speaker": "지훈", "text": "응, 괜찮아."}]
+LINE = [{"speaker": "지훈", "text": "괜찮아?"}]
 
 
 def _payload(plan):

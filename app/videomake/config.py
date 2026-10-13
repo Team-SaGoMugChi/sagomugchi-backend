@@ -36,16 +36,16 @@ SILENT_CUT_SECONDS = 4
 # 무음 컷이 이보다 많이 이어지면 이야기가 끊긴다.
 MAX_SILENT_RUN = 2
 
-# 대사는 Veo가 직접 발화한다. 스파이크에서 8초에 18자 + 12자가 여유 있게 들어갔고
-# 말 사이 공백까지 필요하므로 총량을 이 선에서 막는다. 짧은 컷은 길이에 비례해 줄인다.
-DIALOGUE_MAX_CHARS = 40
-DIALOGUE_MAX_LINES = 3
-# 대사 컷은 두 줄 이상 주고받아야 하므로 4초로는 부족하다.
-DIALOGUE_MIN_SECONDS = 6
-
-# 대사가 한 줄뿐이면 8초 중 6초가 빈다. Veo는 그 침묵을 지어낸 잡담으로 메운다
-# (실제로 관측됨). 주고받는 형태로 시간을 채워 그 여지를 없앤다.
-DIALOGUE_MIN_LINES = 2
+# 대사 컷은 한 사람이 한 줄만 말하고, 화면에는 그 사람만 보인다(숏–리버스숏).
+# 화면에 두 사람이 있으면 Veo가 대사를 엉뚱한 사람 입에 붙였다(6번 중 5번 관측).
+# 주고받는 말은 컷을 나눠 번갈아 보여준다. 남는 시간에 Veo가 덧붙인 말소리는
+# 대사 더빙(stages/dialogue_voice.py)이 줄여서 들리지 않는다.
+DIALOGUE_MIN_LINES = 1
+DIALOGUE_MAX_LINES = 1
+DIALOGUE_MIN_SECONDS = 4
+# 대사는 컷 시작 후 약 1초 조용하다가 시작한다. 대화 속도는 초당 약 6자.
+DIALOGUE_CHARS_PER_SECOND = 6
+DIALOGUE_LEAD_SECONDS = 1.0
 
 
 def narration_chars_for_window(window: float) -> int:
@@ -60,8 +60,10 @@ def narration_max_chars(seconds: int) -> int:
 
 
 def dialogue_max_chars(seconds: int) -> int:
-    """컷 길이(초)에 맞는 대사 총 글자 수 상한. 8초 40자 기준 비례(6초 30자)."""
-    return DIALOGUE_MAX_CHARS * seconds // 8
+    """컷 길이(초)에 맞는 대사 글자 수 상한(4초 14자, 6초 26자, 8초 38자).
+    말 시작 전 조용한 시간과 다음 컷과 겹치는 시간·여유를 뺀다."""
+    speak = seconds - CROSSFADE_SECONDS - DIALOGUE_LEAD_SECONDS - CROSSFADE_SECONDS
+    return max(0, int(DIALOGUE_CHARS_PER_SECOND * speak))
 
 
 class Settings(BaseSettings):
@@ -116,10 +118,17 @@ class Settings(BaseSettings):
     min_total_seconds: int = 12
     max_total_seconds: int = 40
 
-    # Veo는 오디오 생성을 끌 수 없다(Developer API에 generate_audio가 없다).
-    # 나레이션 명료도를 위해 기본은 완전 mute.
-    veo_audio: Literal["mute", "ambient"] = "mute"
-    veo_ambient_gain_db: float = -18.0
+    # 대사 없는 컷의 장면 소리(발소리·거리·그릇 소리). "ambient"(기본)는 Veo가 모든 컷에서
+    # 장면 소리를 만들고 나레이션 아래에 작게 깐다 — 무음 컷이 완전히 비지 않는다.
+    # Veo 3.1 Fast 720p 공개 단가는 소리 포함 초당 $0.10(cost.py와 같다). "mute"는 소리를 만들지 않는다.
+    veo_audio: Literal["mute", "ambient"] = "ambient"
+    # 대사 컷 목소리. "tts"는 Veo의 입 모양 시각에 인물별 TTS를 맞춰 넣는다(stages/dialogue_voice.py).
+    # "veo"는 Veo가 만든 목소리를 그대로 쓴다 — 남녀 목소리가 뒤바뀌는 일이 잦다.
+    dialogue_voice: Literal["tts", "veo"] = "tts"
+    # 장면 소리 크기(dBFS RMS). Veo가 만든 장면 소리는 컷마다 -45~-15dB로 들쭉날쭉해서
+    # 고정 이득 대신 이 크기로 맞춘다. 나레이션(약 -13dB) 아래에서는 더 작게.
+    veo_ambient_gain_db: float = -36.0  # 나레이션 아래
+    veo_ambient_solo_gain_db: float = -28.0  # 목소리 없는 컷
     fade_seconds: float = 0.4
 
     # --- 비용 가드 ---------------------------------------------------------

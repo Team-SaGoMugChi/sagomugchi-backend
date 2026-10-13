@@ -4,8 +4,9 @@
 소리는 컷마다 따로 붙이지 않고 영상 전체 시간축에 놓는다:
   - 나레이션: 그 컷이 시작하고 NARRATION_DELAY_MS 뒤. 뒤따르는 무음 컷까지 이어서 깔릴 수 있다
     (글자 수는 스토리보드 단계에서 그 구간 안에 들어가게 막는다).
-  - 대사 컷: Veo가 만든 인물 목소리를 그 컷 구간에.
-  - veo_audio="ambient"면 Veo 오디오를 크게 감쇠해 모든 컷 아래에 깐다. 기본 "mute"는 버린다.
+  - 대사 컷: 인물별 TTS로 더빙한 오디오(dialogue_voice.py)를 그 컷 구간에. 더빙이 없으면 Veo 목소리.
+  - 장면 소리(veo_audio="ambient", 기본): 대사 없는 컷의 Veo 소리를 컷마다 같은 크기로 맞춰 깐다.
+    나레이션이 깔리는 컷은 작게(veo_ambient_gain_db), 목소리 없는 컷은 조금 크게. "mute"면 버린다.
 
 Veo는 오디오 생성을 끌 수 없다(Developer API에 generate_audio가 없다). 그래서 여기서 고른다.
 """
@@ -16,7 +17,10 @@ import logging
 import shutil
 import subprocess
 import time
+import wave
 from pathlib import Path
+
+import numpy as np
 
 from ..config import CROSSFADE_SECONDS, Settings
 from ..errors import VideomakeError
@@ -45,7 +49,8 @@ def _ffmpeg() -> str:
 
 
 def _run(args: list[str]) -> None:
-    proc = subprocess.run(args, capture_output=True, text=True, check=False)
+    # ffmpeg가 터미널 키 입력을 읽지 않게 stdin을 끊는다(서버·백그라운드 실행).
+    proc = subprocess.run(args, capture_output=True, text=True, check=False, stdin=subprocess.DEVNULL)
     if proc.returncode != 0:
         tail = "\n".join(proc.stderr.strip().splitlines()[-15:])
         raise VideomakeError(f"ffmpeg 실패:\n{tail}")
@@ -77,9 +82,22 @@ def _extract_audio(src: Path, dest: Path, *, seconds: int) -> bool:
             _ffmpeg(), "-y", "-i", str(src), "-t", str(seconds), "-vn",
             "-ar", str(AUDIO_RATE), "-ac", "2", str(dest),
         ],
-        capture_output=True, text=True, check=False,
+        capture_output=True, text=True, check=False, stdin=subprocess.DEVNULL,
     )
     return proc.returncode == 0 and dest.exists() and dest.stat().st_size > 0
+
+
+def _level_gain(path: Path, target_db: float, max_gain_db: float = 20.0) -> float:
+    """장면 소리를 target_db(RMS)로 맞추는 이득. 거의 무음이면 키우지 않는다(잡음만 커진다)."""
+    with wave.open(str(path), "rb") as wf:
+        samples = np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16)
+    if samples.size == 0:
+        return target_db
+    rms = float(np.sqrt(np.mean((samples.astype(np.float64) / 32768.0) ** 2)))
+    level = 20 * np.log10(rms + 1e-9)
+    if level < -60:
+        return 0.0
+    return min(target_db - level, max_gain_db)
 
 
 def compose(
@@ -88,17 +106,29 @@ def compose(
     job: JobStore,
     settings: Settings,
     narrations: dict[int, Path] | None = None,
+    dialogues: dict[int, Path] | None = None,
 ) -> Path:
     started = time.perf_counter()
     work = job.dir / "compose"
     work.mkdir(exist_ok=True)
     narrations = narrations or {}
+    dialogues = dialogues or {}
     size = _FRAME_SIZES.get((settings.aspect_ratio, settings.video_resolution), (720, 1280))
 
     seconds = [c.duration_seconds for c in sb.cuts]
     starts = cut_starts(seconds)
     total = round(starts[-1] + seconds[-1], 3) if seconds else 0.0
     x = CROSSFADE_SECONDS
+
+    # 나레이션이 깔리는 컷(나레이션 컷 + 이어지는 무음 컷). 장면 소리는 이 아래에서 작게.
+    windows = sb.narration_windows()
+    under_voice: set[int] = set()
+    for pos, cut in enumerate(sb.cuts):
+        if cut.index in windows:
+            for nxt in sb.cuts[pos:]:
+                if nxt is not cut and not nxt.is_silent:
+                    break
+                under_voice.add(nxt.index)
 
     videos: list[Path] = []
     # (파일, 시작 시각 ms, 볼륨 dB)
@@ -112,10 +142,21 @@ def compose(
         videos.append(video)
 
         start_ms = int(start * 1000)
-        if cut.is_dialogue or settings.veo_audio == "ambient":
+        dubbed = dialogues.get(cut.index) if cut.is_dialogue else None
+        if dubbed is not None:
+            audios.append((dubbed, start_ms, 0.0))
+        elif cut.is_dialogue or settings.veo_audio == "ambient":
             voice = work / f"{cut.index:02d}_veo.wav"
             if _extract_audio(src, voice, seconds=cut.duration_seconds):
-                gain = 0.0 if cut.is_dialogue else settings.veo_ambient_gain_db
+                if cut.is_dialogue:
+                    gain = 0.0
+                else:
+                    target = (
+                        settings.veo_ambient_gain_db
+                        if cut.index in under_voice
+                        else settings.veo_ambient_solo_gain_db
+                    )
+                    gain = _level_gain(voice, target)
                 audios.append((voice, start_ms, gain))
         narration = narrations.get(cut.index)
         if narration is not None and not cut.is_dialogue:
@@ -165,7 +206,8 @@ def compose(
     else:
         mixed = f"{first_audio}:a"
     filters.append(
-        f"[{mixed}]apad,atrim=0:{total},"
+        # apad는 끝을 정해 둔다. 끝없는 apad는 ffmpeg 8.1에서 가끔 멈춘다(6번 중 2번 관측).
+        f"[{mixed}]apad=whole_dur={total},atrim=0:{total},"
         f"afade=t=in:st=0:d={fade},afade=t=out:st={out_start}:d={fade}[aout]"
     )
 

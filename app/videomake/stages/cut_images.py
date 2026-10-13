@@ -50,6 +50,8 @@ async def generate_cut_images(
         if dest.exists() and not force:
             log.info("컷 %d 이미지 캐시 재사용", cut.index)
             return cut.index, dest
+        moment = moment_shot(sb, cut)
+        moment_image = job.cut_image(moment) if moment else None
         prompt, references = cut_image_request(
             sb,
             cut,
@@ -57,6 +59,7 @@ async def generate_cut_images(
             location_sheets=location_sheets,
             prompts=prompts,
             aspect_ratio=settings.aspect_ratio,
+            moment_image=moment_image if moment_image and moment_image.exists() else None,
         )
         async with sem:
             result = await image.generate(
@@ -72,13 +75,78 @@ async def generate_cut_images(
         job.unapprove({cut.index})
         return cut.index, dest
 
-    pairs = await asyncio.gather(*(one(c) for c in targets))
+    # 혼자 나오는 대사 컷은 같은 순간의 두 사람 컷을 참고해 그린다 — 그 컷을 먼저 그린다.
+    later = [c for c in targets if moment_shot(sb, c) is not None]
+    first = [c for c in targets if c not in later]
+    pairs = await asyncio.gather(*(one(c) for c in first))
+    pairs += await asyncio.gather(*(one(c) for c in later))
     job.record_stage(
         Stage.CUT_IMAGES,
         elapsed_s=time.perf_counter() - started,
         cuts=[i for i, _ in pairs],
     )
     return dict(pairs)
+
+
+def voice_off_screen(sb: Storyboard, cut: Cut) -> bool:
+    """대사 컷인데 말하는 사람이 모두 화면에 없다(전화 속 목소리 등).
+
+    이런 컷은 Veo에게 말소리를 시키지 않는다 — 말소리를 만들면 화면에 보이는 사람의 입을
+    그 소리에 맞춰 움직였다(듣기만 해야 하는 사람이 말하는 것처럼 보임). 목소리는 더빙이 넣는다."""
+    if not cut.is_dialogue:
+        return False
+    shown = {m.name for m in sb.visible_cast(cut)}
+    return all(line.speaker not in shown for line in cut.dialogue)
+
+
+def mood_subject(sb: Storyboard, cut: Cut) -> str:
+    """감정(표정·자세) 지시를 받을 사람 — 그 컷 화면에 보이는 사람. 주인공이 보이면 주인공,
+    주인공 없이 다른 사람만 보이면 그 사람이다. 아무도 없으면 주인공(장면 분위기).
+    늘 주인공 이름을 쓰면 지수 혼자 나오는 컷에 "민서: hurt"처럼 화면에 없는 사람을 지시했다."""
+    names = [m.name for m in sb.visible_cast(cut)]
+    if not names or sb.protagonist.name in names:
+        return sb.protagonist.name
+    return names[0]
+
+
+def solo_listener_side(sb: Storyboard, cut: Cut, cast: list) -> str | None:
+    """대사 컷에 말하는 사람 혼자 보이면, 화면 밖 상대가 있는 쪽(시선 방향). 아니면 None.
+    화면 왼쪽에 있는 사람은 오른쪽을 본다. 가운데면 오른쪽으로 둔다.
+
+    상대가 그 장소에 실제로 있을 때만이다 — 같은 장소의 다른 컷에 다른 사람이 함께 보인다.
+    전화 통화처럼 혼자 있는 장면에 "화면 밖 상대"를 쓰면 그림 모델이 화면 끝에 엉뚱한
+    사람의 뒷모습을 그렸다."""
+    if not cut.is_dialogue or len(cast) != 1:
+        return None
+    speaker = cast[0].name
+    if speaker not in {line.speaker for line in cut.dialogue}:
+        return None
+    present = any(
+        m.name != speaker
+        for c in sb.cuts
+        if c.location == cut.location
+        for m in c.cast
+    )
+    if not present:
+        return None
+    return "left" if cast[0].position == "right" else "right"
+
+
+def moment_shot(sb: Storyboard, cut: Cut) -> int | None:
+    """혼자 나오는 대사 컷이 참고할 같은 순간의 컷 — 같은 장소에서 말하는 사람이 다른 사람과
+    함께 보이는 가장 가까운 컷(앞 컷 우선). 테이블·의자·컵·옷을 맞추는 데만 쓴다.
+    텍스트만으로는 한 사람 컷의 테이블 모양·색이 두 사람 컷과 달라졌다."""
+    if solo_listener_side(sb, cut, sb.visible_cast(cut)) is None:
+        return None
+    speaker = cut.cast[0].name
+    candidates = [
+        c for c in sb.cuts
+        if c.index != cut.index and c.location == cut.location
+        and len(c.cast) > 1 and speaker in {m.name for m in c.cast}
+    ]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda c: (c.index > cut.index, abs(c.index - cut.index))).index
 
 
 def cut_image_request(
@@ -91,6 +159,7 @@ def cut_image_request(
     aspect_ratio: str,
     camera_distance: str | None = None,
     thumbnail: bool = False,
+    moment_image: Path | None = None,
 ) -> tuple[str, list[Path]]:
     """컷 하나를 그릴 프롬프트와 레퍼런스(화면 속 인물 시트 → 장소 시트).
 
@@ -100,19 +169,23 @@ def cut_image_request(
     people = [m for m in cast if m.name in sheets]
     place_sheet = location_sheets.get(cut.location)
     references = [sheets[m.name] for m in people] + ([place_sheet] if place_sheet else [])
+    if moment_image is not None:
+        references.append(moment_image)
     prompt = prompts.render(
         "cut_image.j2",
         people=people,
         cast=cast,
+        solo_side=solo_listener_side(sb, cut, cast),
         location=sb.location(cut.location),
         has_location_sheet=place_sheet is not None,
+        has_moment_image=moment_image is not None,
         thumbnail=thumbnail,
         image_prompt=cut.image_prompt,
         camera_distance=camera_distance or cut.camera_distance,
         aspect_ratio=aspect_ratio,
         style_block=prompts.style_block,
         mood_block=prompts.render(
-            "mood.j2", mood=cut.mood, name=sb.protagonist.name, part="image"
+            "mood.j2", mood=cut.mood, name=mood_subject(sb, cut), part="image"
         ),
     )
     return prompt, references

@@ -19,7 +19,7 @@ pytestmark = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg �
 
 CLASSROOM = "A training classroom. Entrance side: a wooden door. Far side: a whiteboard. Left side: tall windows. Right side: a beige wall with a clock."
 PARKING = "An open outdoor parking lot beside a five-storey beige building."
-FRIEND = {"name": "지수", "appearance": "A woman in her late twenties with shoulder-length brown hair, wearing a grey knit sweater.", "voice": "bright, mid-pitched"}
+FRIEND = {"name": "지수", "appearance": "A woman in her late twenties with shoulder-length brown hair, wearing a grey knit sweater.", "voice": "bright, mid-pitched, a woman"}
 
 
 @pytest.fixture(autouse=True)
@@ -129,4 +129,4 @@ def test_korean_location_description_is_fed_back():
 
 def test_two_people_face_each_other_not_the_camera(tmp_path):
     calls = _images(tmp_path, [("강의실", [("지훈", "left"), ("지수", "right")])])
-    assert "never stand side by side facing the camera" in calls["cut01"][0]
+    assert "never stand or sit side by side facing the camera" in calls["cut01"][0]
