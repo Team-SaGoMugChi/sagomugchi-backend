@@ -50,6 +50,8 @@ async def generate_cut_images(
         if dest.exists() and not force:
             log.info("컷 %d 이미지 캐시 재사용", cut.index)
             return cut.index, dest
+        moment = moment_shot(sb, cut)
+        moment_image = job.cut_image(moment) if moment else None
         prompt, references = cut_image_request(
             sb,
             cut,
@@ -57,6 +59,7 @@ async def generate_cut_images(
             location_sheets=location_sheets,
             prompts=prompts,
             aspect_ratio=settings.aspect_ratio,
+            moment_image=moment_image if moment_image and moment_image.exists() else None,
         )
         async with sem:
             result = await image.generate(
@@ -72,7 +75,11 @@ async def generate_cut_images(
         job.unapprove({cut.index})
         return cut.index, dest
 
-    pairs = await asyncio.gather(*(one(c) for c in targets))
+    # 혼자 나오는 대사 컷은 같은 순간의 두 사람 컷을 참고해 그린다 — 그 컷을 먼저 그린다.
+    later = [c for c in targets if moment_shot(sb, c) is not None]
+    first = [c for c in targets if c not in later]
+    pairs = await asyncio.gather(*(one(c) for c in first))
+    pairs += await asyncio.gather(*(one(c) for c in later))
     job.record_stage(
         Stage.CUT_IMAGES,
         elapsed_s=time.perf_counter() - started,
@@ -152,6 +159,7 @@ def cut_image_request(
     aspect_ratio: str,
     camera_distance: str | None = None,
     thumbnail: bool = False,
+    moment_image: Path | None = None,
 ) -> tuple[str, list[Path]]:
     """컷 하나를 그릴 프롬프트와 레퍼런스(화면 속 인물 시트 → 장소 시트).
 
@@ -161,6 +169,8 @@ def cut_image_request(
     people = [m for m in cast if m.name in sheets]
     place_sheet = location_sheets.get(cut.location)
     references = [sheets[m.name] for m in people] + ([place_sheet] if place_sheet else [])
+    if moment_image is not None:
+        references.append(moment_image)
     prompt = prompts.render(
         "cut_image.j2",
         people=people,
@@ -175,7 +185,7 @@ def cut_image_request(
         aspect_ratio=aspect_ratio,
         style_block=prompts.style_block,
         mood_block=prompts.render(
-            "mood.j2", mood=cut.mood, name=sb.protagonist.name, part="image"
+            "mood.j2", mood=cut.mood, name=mood_subject(sb, cut), part="image"
         ),
     )
     return prompt, references

@@ -6,6 +6,11 @@ ATTACHED REFERENCE IMAGES (in this order):
 {% endfor -%}
 {% if has_location_sheet -%}
 {{ people | length + 1 }}. Location reference sheet: the same place seen from four sides.
+{% endif -%}
+{% if has_moment_image -%}
+{{ people | length + (2 if has_location_sheet else 1) }}. An earlier shot of this same moment, taken from a different camera position.
+Use it ONLY to match the table, chairs, cups and objects on the table, and everyone's clothing:
+same shape, material and color. Do NOT copy its camera angle, framing or composition.
 {% endif %}
 {% for m in people -%}
 Reproduce {{ m.name }} with exactly the same face, hair, body proportions, clothing and colors
@@ -35,6 +40,8 @@ PLACE:
 {{ location.description }}
 {% if has_location_sheet -%}
 Use the location reference sheet ONLY to know what each side of the place looks like.
+The time of day and lighting follow SCENE, not the location sheet: if SCENE says evening or night,
+the sky outside the windows is dark and the lamps are on, even if the sheet shows daylight.
 Show the side of the place that SCENE says the camera faces, from the camera position in SCENE.
 Do NOT copy the viewpoint or composition of any panel of the location sheet.
 {% endif -%}
@@ -42,13 +49,18 @@ Do NOT copy the viewpoint or composition of any panel of the location sheet.
 FRAMING:
 Third-person observational {{ camera_distance }} shot. The camera is a detached
 outside observer and never takes the character's point of view.
-Keep clear physical distance from the character. No close-up of the face,
-no extreme close-up, no POV, no over-shoulder subjective framing.
+{% if camera_distance != 'medium' or thumbnail -%}
+Keep clear physical distance from the character. {% endif -%}
+No close-up of the face, no extreme close-up, no POV, no over-shoulder subjective framing.
 {% if thumbnail -%}
 This frame is a thumbnail shown on a small card. Recompose the SCENE for a landscape frame:
 the character(s) are the clear subject and fill about half of the frame height or more,
 with only enough surroundings to recognize the place. Their face and expression must be readable.
 Still no close-up of a face filling the frame.
+{% elif camera_distance == 'medium' -%}
+MEDIUM SHOT: the frame is cropped at about the waist (or at the table top when seated).
+Legs and feet are NOT visible. The people fill a good part of the frame,
+so their faces and expressions are easy to read. Still no close-up of a face filling the frame.
 {% else -%}
 The character occupies a modest portion of the frame with visible surrounding space.
 {% endif -%}
@@ -56,7 +68,10 @@ The character occupies a modest portion of the frame with visible surrounding sp
 
 MOOD:
 {{ mood_block }}
-The light, colors, expression and posture must clearly show this mood.
+The expression and posture must clearly show this mood. Light and color lean toward
+this mood only subtly: {% if location %}the place keeps the same time of day, light sources
+and colors as in its other shots, so it is recognizably the same place{% else %}keep
+natural, true-to-life light{% endif %}.
 
 EXPRESSION:
 Natural and believable, never exaggerated. No screaming, no sobbing, no wild gestures.
