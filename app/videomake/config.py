@@ -118,10 +118,17 @@ class Settings(BaseSettings):
     min_total_seconds: int = 12
     max_total_seconds: int = 40
 
-    # Veo는 오디오 생성을 끌 수 없다(Developer API에 generate_audio가 없다).
-    # 나레이션 명료도를 위해 기본은 완전 mute.
-    veo_audio: Literal["mute", "ambient"] = "mute"
-    veo_ambient_gain_db: float = -18.0
+    # 대사 없는 컷의 장면 소리(발소리·거리·그릇 소리). "ambient"(기본)는 Veo가 모든 컷에서
+    # 장면 소리를 만들고 나레이션 아래에 작게 깐다 — 무음 컷이 완전히 비지 않는다.
+    # Veo 3.1 Fast 720p 공개 단가는 소리 포함 초당 $0.10(cost.py와 같다). "mute"는 소리를 만들지 않는다.
+    veo_audio: Literal["mute", "ambient"] = "ambient"
+    # 대사 컷 목소리. "tts"는 Veo의 입 모양 시각에 인물별 TTS를 맞춰 넣는다(stages/dialogue_voice.py).
+    # "veo"는 Veo가 만든 목소리를 그대로 쓴다 — 남녀 목소리가 뒤바뀌는 일이 잦다.
+    dialogue_voice: Literal["tts", "veo"] = "tts"
+    # 장면 소리 크기(dBFS RMS). Veo가 만든 장면 소리는 컷마다 -45~-15dB로 들쭉날쭉해서
+    # 고정 이득 대신 이 크기로 맞춘다. 나레이션(약 -13dB) 아래에서는 더 작게.
+    veo_ambient_gain_db: float = -36.0  # 나레이션 아래
+    veo_ambient_solo_gain_db: float = -28.0  # 목소리 없는 컷
     fade_seconds: float = 0.4
 
     # --- 비용 가드 ---------------------------------------------------------

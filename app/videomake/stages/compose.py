@@ -4,8 +4,9 @@
 소리는 컷마다 따로 붙이지 않고 영상 전체 시간축에 놓는다:
   - 나레이션: 그 컷이 시작하고 NARRATION_DELAY_MS 뒤. 뒤따르는 무음 컷까지 이어서 깔릴 수 있다
     (글자 수는 스토리보드 단계에서 그 구간 안에 들어가게 막는다).
-  - 대사 컷: Veo가 만든 인물 목소리를 그 컷 구간에.
-  - veo_audio="ambient"면 Veo 오디오를 크게 감쇠해 모든 컷 아래에 깐다. 기본 "mute"는 버린다.
+  - 대사 컷: 인물별 TTS로 더빙한 오디오(dialogue_voice.py)를 그 컷 구간에. 더빙이 없으면 Veo 목소리.
+  - 장면 소리(veo_audio="ambient", 기본): 대사 없는 컷의 Veo 소리를 컷마다 같은 크기로 맞춰 깐다.
+    나레이션이 깔리는 컷은 작게(veo_ambient_gain_db), 목소리 없는 컷은 조금 크게. "mute"면 버린다.
 
 Veo는 오디오 생성을 끌 수 없다(Developer API에 generate_audio가 없다). 그래서 여기서 고른다.
 """
@@ -88,11 +89,13 @@ def compose(
     job: JobStore,
     settings: Settings,
     narrations: dict[int, Path] | None = None,
+    dialogues: dict[int, Path] | None = None,
 ) -> Path:
     started = time.perf_counter()
     work = job.dir / "compose"
     work.mkdir(exist_ok=True)
     narrations = narrations or {}
+    dialogues = dialogues or {}
     size = _FRAME_SIZES.get((settings.aspect_ratio, settings.video_resolution), (720, 1280))
 
     seconds = [c.duration_seconds for c in sb.cuts]

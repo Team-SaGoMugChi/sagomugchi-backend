@@ -93,6 +93,9 @@ class JobStore:
     def cut_narration(self, index: int) -> Path:
         return self.cut_dir(index) / "narration.wav"
 
+    def cut_dialogue(self, index: int) -> Path:
+        return self.cut_dir(index) / "dialogue.wav"
+
     def cut_handle(self, index: int) -> Path:
         return self.cut_dir(index) / "video_handle.json"
 
