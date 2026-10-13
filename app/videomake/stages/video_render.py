@@ -151,6 +151,9 @@ async def render_cut_videos(
             if status.failed:
                 errors.append(f"컷 {handle.cut_index}: {status.error}")
                 log.error("컷 %d 실패: %s", handle.cut_index, status.error)
+                # 실패한 작업의 핸들을 지운다. 남겨 두면 다시 시도해도 실패한 작업만
+                # 다시 조회해 영원히 실패한다(서버 과부하 code 8에서 관측). 실패한 작업은 과금되지 않는다.
+                job.cut_handle(handle.cut_index).unlink(missing_ok=True)
                 continue
             dest = job.cut_video(handle.cut_index)
             await video.fetch(handle, dest)

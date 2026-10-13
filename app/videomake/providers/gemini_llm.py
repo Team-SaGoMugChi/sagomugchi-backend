@@ -33,7 +33,9 @@ class GeminiLLMProvider:
                     config=types.GenerateContentConfig(
                         system_instruction=system,
                         response_mime_type="application/json",
-                        response_schema=schema,
+                        # response_schema는 숫자 enum(컷 길이 4/6/8)을 받지 못한다.
+                        # JSON Schema로 넘기면 그대로 통과한다.
+                        response_json_schema=schema.model_json_schema(),
                         temperature=0.9,
                         automatic_function_calling=types.AutomaticFunctionCallingConfig(
                             disable=True

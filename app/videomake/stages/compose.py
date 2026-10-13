@@ -49,7 +49,8 @@ def _ffmpeg() -> str:
 
 
 def _run(args: list[str]) -> None:
-    proc = subprocess.run(args, capture_output=True, text=True, check=False)
+    # ffmpeg가 터미널 키 입력을 읽지 않게 stdin을 끊는다(서버·백그라운드 실행).
+    proc = subprocess.run(args, capture_output=True, text=True, check=False, stdin=subprocess.DEVNULL)
     if proc.returncode != 0:
         tail = "\n".join(proc.stderr.strip().splitlines()[-15:])
         raise VideomakeError(f"ffmpeg 실패:\n{tail}")
@@ -81,7 +82,7 @@ def _extract_audio(src: Path, dest: Path, *, seconds: int) -> bool:
             _ffmpeg(), "-y", "-i", str(src), "-t", str(seconds), "-vn",
             "-ar", str(AUDIO_RATE), "-ac", "2", str(dest),
         ],
-        capture_output=True, text=True, check=False,
+        capture_output=True, text=True, check=False, stdin=subprocess.DEVNULL,
     )
     return proc.returncode == 0 and dest.exists() and dest.stat().st_size > 0
 
@@ -205,7 +206,8 @@ def compose(
     else:
         mixed = f"{first_audio}:a"
     filters.append(
-        f"[{mixed}]apad,atrim=0:{total},"
+        # apad는 끝을 정해 둔다. 끝없는 apad는 ffmpeg 8.1에서 가끔 멈춘다(6번 중 2번 관측).
+        f"[{mixed}]apad=whole_dur={total},atrim=0:{total},"
         f"afade=t=in:st=0:d={fade},afade=t=out:st={out_start}:d={fade}[aout]"
     )
 
