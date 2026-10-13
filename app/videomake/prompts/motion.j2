@@ -37,5 +37,11 @@ The character does not speak and their lips do not move.
 {{ mood_line }}
 
 Absolutely no subtitles, captions, letters or any on-screen text appear at any time.
+{% if ambient -%}
+Audio: only the natural sounds of this scene, matching what happens on screen (for example
+footsteps, street or cafe ambience, cups and dishes), at a quiet, natural level.
+No speech, no voices, no talking in the background, no music.
+{%- else -%}
 Audio: quiet ambient room tone only. No speech, no dialogue, no music.
+{%- endif %}
 {% endif %}

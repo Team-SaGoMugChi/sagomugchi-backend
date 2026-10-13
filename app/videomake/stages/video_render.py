@@ -97,7 +97,8 @@ async def render_cut_videos(
                 aspect_ratio=settings.aspect_ratio,
                 resolution=settings.video_resolution,
                 duration_seconds=cut.duration_seconds,
-                generate_audio=cut.is_dialogue,
+                # ambient면 모든 컷에서 장면 소리(발소리·거리·그릇 소리)를 만든다. 소리 포함은 더 비싸다.
+                generate_audio=speaks or settings.veo_audio == "ambient",
             )
         job.cut_handle(cut.index).write_text(
             handle.model_dump_json(indent=2), encoding="utf-8"
