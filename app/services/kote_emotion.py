@@ -55,13 +55,13 @@ otherwise turn a single tiny score into 100% confidence.
     grouped = {label: max(scores[key] for key in group) for label, group in SIX_EMOTION_GROUPS.items()}
     strongest = max(grouped.values())
     if strongest < threshold or scores["없음"] >= strongest:
-        return TextEmotionResult(dict.fromkeys(EMOTION_LABELS, 0.0), None, 0.0)
+        return TextEmotionResult(dict.fromkeys(EMOTION_LABELS, 0.0), None, 0.0, dict(scores))
     supported = {label: value if value >= threshold else 0.0 for label, value in grouped.items()}
     total = sum(supported.values())
     normalized = {label: value / total for label, value in supported.items()}
     dominant = max(normalized, key=normalized.get)
     # Compatibility field used by fusion, not calibrated certainty/intensity.
-    return TextEmotionResult(normalized, dominant, grouped[dominant])
+    return TextEmotionResult(normalized, dominant, grouped[dominant], dict(scores))
 
 
 class KoteTextEmotionClassifier(TextEmotionClassifier):

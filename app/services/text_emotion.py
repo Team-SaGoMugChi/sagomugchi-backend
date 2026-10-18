@@ -4,7 +4,7 @@ ALBERT / AI Hub checkpoints are not loaded. See docs/KOTE.md.
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 
 EMOTION_LABELS = ["기쁨", "슬픔", "분노", "불안", "상처", "당황"]
@@ -15,6 +15,9 @@ class TextEmotionResult:
     scores: dict[str, float]  # 6종 상대 점수; 합 1, 판단 불가 시 모두 0 (KOTE)
     dominant_emotion: str | None  # 근거가 부족하면 None(판단 불가)
     confidence: float  # 근거 점수, 보정된 정확도/감정 강도가 아님
+    # KOTE 44종 원래 sigmoid 점수(6종으로 묶기 전). 답변별 감정 키워드에 쓴다.
+    # 키워드 폴백이나 테스트 분류기처럼 세부 라벨이 없으면 비어 있다.
+    labels: dict[str, float] = field(default_factory=dict)
 
 
 class TextEmotionClassifier(ABC):
