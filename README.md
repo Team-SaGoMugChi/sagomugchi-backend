@@ -65,6 +65,7 @@ server/
 | POST | `/analyze/face` | 이미지 → 랜드마크 검출 (MediaPipe) | 랜드마크 검출만 실동작, AU/표정 분류는 TODO |
 | POST | `/baseline` | 음성+얼굴 → baseline 프로필 → `users/{uid}/meta/baseline` 저장 | 특징 추출 + Firestore 쓰기 실동작 (서비스 계정 키 필요) |
 | POST | `/diary/step2/analyze` | 음성+얼굴+텍스트 → baseline 대비 Δ + fusion → 감정 키워드/점수 | 계산 실동작, **Firestore 저장은 미연결**(아래 참고) |
+| POST | `/diary/interview/emotion` | 통화 중 답변 하나 텍스트 → 6종 감정 + KOTE 세부 감정 키워드 (37번 실시간 대시보드용, 저장 안 함) | 실동작 ([docs/KOTE.md](docs/KOTE.md)) |
 | POST | `/video/jobs` | 일기 원문 + Step2 감정 + 일기 전달 JSON → Step3 숏폼 생성 작업 등록 (202, `job_id`) | 실동작 (기본 더미 모드, 실제 생성은 Vertex ADC 필요) |
 | GET | `/video/jobs/{job_id}` | 영상 작업 단계·진행률·오류 조회 | 실동작 |
 | GET | `/video/jobs/{job_id}/file` | 완성된 mp4 다운로드 | 실동작 (Storage 업로드는 후속) |

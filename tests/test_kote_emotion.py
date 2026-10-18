@@ -32,6 +32,12 @@ def test_six_class_projection(label, expected):
     assert result.confidence == 0.8  # Not normalized certainty of 1.0.
 
 
+def test_projection_keeps_native_kote_scores():
+    values = native(**{'짜증': 0.9})
+    assert project_six(values).labels == values
+    assert project_six(native(**{'없음': 0.9})).labels['없음'] == 0.9
+
+
 def test_multiple_emotions_survive_and_group_size_does_not_add_mass():
     result = project_six(native(**{'행복': 0.8, '기쁨': 0.8, '슬픔': 0.8}))
     assert result.scores['기쁨'] == result.scores['슬픔'] == 0.5

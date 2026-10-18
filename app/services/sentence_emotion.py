@@ -31,11 +31,15 @@ def classify_by_sentence(classifier: TextEmotionClassifier, text: str) -> TextEm
     판단 불가인 문장은 평균에서 뺀다. 확신도도 같은 가중 평균이다(감정 강도 계산에 쓰인다).
     전달 JSON의 문장 확신도 기준(SENTENCE_MIN_CONFIDENCE)은 장면을 나누는 용도라 여기서는 쓰지
     않는다 — 쓰면 감정이 담겼지만 확신도가 0.73~0.80인 부정 문장이 빠져 다시 한 감정으로 쏠린다.
+
+    KOTE 세부 라벨(labels)은 평균하지 않고 감정이 있는 문장 중 가장 높은 값을 남긴다. 키워드
+    용도라서, 한 문장에서라도 뚜렷하면 살려야 한다 — 평균하면 문장이 많은 답변에서 묻힌다.
     """
     sentences = [sentence for _, sentence in iter_turn_sentences(text)]
     if not sentences:
         return classifier.classify(text)  # 빈 입력 오류는 분류기가 판단한다
     totals = dict.fromkeys(EMOTION_LABELS, 0.0)
+    labels: dict[str, float] = {}
     confidence = 0.0
     weight_sum = 0
     for sentence in sentences:
@@ -45,9 +49,11 @@ def classify_by_sentence(classifier: TextEmotionClassifier, text: str) -> TextEm
         weight = len(sentence)
         for label in EMOTION_LABELS:
             totals[label] += result.scores.get(label, 0.0) * weight
+        for label, value in result.labels.items():
+            labels[label] = max(labels.get(label, 0.0), value)
         confidence += result.confidence * weight
         weight_sum += weight
     if weight_sum == 0:
         return TextEmotionResult(dict.fromkeys(EMOTION_LABELS, 0.0), None, 0.0)
     scores = {label: value / weight_sum for label, value in totals.items()}
-    return TextEmotionResult(scores, max(scores, key=scores.get), confidence / weight_sum)
+    return TextEmotionResult(scores, max(scores, key=scores.get), confidence / weight_sum, labels)

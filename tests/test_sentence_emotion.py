@@ -59,6 +59,21 @@ def test_mixed_diary_keeps_every_emotion_weighted_by_length():
     assert result.confidence == pytest.approx((0.95 * 10 + 0.75 * 10) / 20)
 
 
+def test_fine_labels_keep_highest_value_across_emotional_sentences():
+    class _Fine(TextEmotionClassifier):
+        def classify(self, text: str) -> TextEmotionResult:
+            if "뿌듯" in text:
+                return TextEmotionResult(_result(기쁨=1.0).scores, "기쁨", 0.9, {"뿌듯함": 0.9, "걱정": 0.2})
+            if "걱정" in text:
+                return TextEmotionResult(_result(불안=1.0).scores, "불안", 0.7, {"불안/걱정": 0.7, "뿌듯함": 0.1})
+            # 판단 불가 문장의 세부 점수는 남기지 않는다.
+            return TextEmotionResult(_result().scores, None, 0.0, {"뿌듯함": 0.99})
+
+    result = classify_by_sentence(_Fine(), f"{JOY} {WORRY} {FACT}")
+
+    assert result.labels == {"뿌듯함": 0.9, "걱정": 0.2, "불안/걱정": 0.7}
+
+
 def test_single_emotion_diary_matches_sentence_result():
     result = classify_by_sentence(_Classifier(), f"{JOY}\n{FACT}")
 
