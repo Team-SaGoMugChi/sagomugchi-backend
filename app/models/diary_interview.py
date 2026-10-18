@@ -44,6 +44,31 @@ class InterviewTurnResponse(BaseModel):
     )
 
 
+class AnswerEmotionRequest(BaseModel):
+    """통화 중 답변 하나 — 질문 요청(/diary/interview/turn)과 따로 보낸다."""
+
+    user_text: str = Field(..., min_length=1, max_length=5000, description="이번 차례 STT 결과")
+
+    @field_validator("user_text")
+    @classmethod
+    def reject_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("user_text must not be blank")
+        return value
+
+
+class AnswerEmotionResponse(BaseModel):
+    """답변 하나의 텍스트 감정(대시보드 보여주기용, 저장하지 않음). 6종은 Step2와 같다."""
+
+    scores: dict[str, float] = Field(..., description="6종 상대 점수(합 1). 판단 불가면 모두 0")
+    dominant_emotion: str | None = Field(None, description="6종 중 대표 감정. 근거가 부족하면 null")
+    confidence: float = Field(..., ge=0, le=1, description="모델 근거 점수 — 보정된 정확도나 감정 강도가 아님")
+    keywords: list[str] = Field(
+        default_factory=list,
+        description="KOTE 세부 감정(예: 짜증, 억울함), 점수 높은 순 최대 4개. 판단 불가면 빈 목록",
+    )
+
+
 class RefineRequest(BaseModel):
     """대화 전체 — 탄카츄의 질문도 넣는다(짧은 답을 문장으로 만들 때 맥락이 된다)."""
 
