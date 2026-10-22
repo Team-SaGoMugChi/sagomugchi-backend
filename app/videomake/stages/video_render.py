@@ -77,6 +77,13 @@ async def render_cut_videos(
             motion = prompts.render(
                 "motion.j2",
                 motion_prompt=cut.motion_prompt,
+                shots=cut.shots,
+                duration=cut.duration_seconds,
+                outfits=[
+                    {"look": p.appearance, "position": m.position}
+                    for m in sb.visible_cast(cut)
+                    if (p := sb.character(m.name))
+                ] if cut.shots else [],
                 dialogue=lines,
                 solo_side=solo_listener_side(sb, cut, sb.visible_cast(cut)),
                 ambient=settings.veo_audio == "ambient",
@@ -99,6 +106,7 @@ async def render_cut_videos(
                 duration_seconds=cut.duration_seconds,
                 # ambient면 모든 컷에서 장면 소리(발소리·거리·그릇 소리)를 만든다. 소리 포함은 더 비싸다.
                 generate_audio=speaks or settings.veo_audio == "ambient",
+                speaking=speaks,
             )
         job.cut_handle(cut.index).write_text(
             handle.model_dump_json(indent=2), encoding="utf-8"
@@ -156,9 +164,19 @@ async def render_cut_videos(
                 job.cut_handle(handle.cut_index).unlink(missing_ok=True)
                 continue
             dest = job.cut_video(handle.cut_index)
-            await video.fetch(handle, dest)
+            try:
+                fetched = await video.fetch(handle, dest)
+            except ProviderError as exc:
+                # 작업은 끝났는데 영상이 없다(안전 필터 등). 핸들을 남기면 재시도가 같은 결과만 다시 읽는다.
+                errors.append(str(exc))
+                log.error("컷 %d 실패: %s", handle.cut_index, exc)
+                job.cut_handle(handle.cut_index).unlink(missing_ok=True)
+                continue
             cut = sb.cut(handle.cut_index)
-            cost = video.price_per_second(settings.video_resolution) * cut.duration_seconds
+            # provider가 실제 차감액을 알려주면(evolink) 그것을, 아니면 단가 × 길이를 기록한다.
+            cost = fetched.cost_usd or (
+                video.price_per_second(settings.video_resolution) * cut.duration_seconds
+            )
             job.record_cost(f"cut{handle.cut_index}_video", Decimal(cost))
             results[handle.cut_index] = dest
             log.info(

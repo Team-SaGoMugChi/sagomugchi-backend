@@ -10,7 +10,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
@@ -90,6 +90,10 @@ class Settings(BaseSettings):
     # 스토리보드 LLM. 팀 표준은 GPT(openai)다. gemini로도 바꿀 수 있다.
     # 이미지·영상·TTS는 어느 쪽이든 Vertex.
     llm_provider: Literal["gemini", "openai"] = "openai"
+    # 스토리보드를 한 번의 호출로(single, 기본) 만들지, 작가·감독·스크립터로 나눈 제작팀으로(team) 만들지.
+    planner: Literal["single", "team"] = "single"
+    # 제작팀 모드의 촬영감독 단계: 나레이션·무음 컷 일부를 한 번 생성 안에서 2~3개 샷으로 나눈다.
+    shot_split: bool = True
     # 영상 전용 OpenAI 키(VIDEOMAKE_OPENAI_API_KEY). 팀 결정으로 키를 용도별로 나눈다 —
     # 상담의 LLM_API_KEY는 읽지 않는다. 사용량·비용을 기능별로 따로 보기 위함.
     openai_api_key: str = ""
@@ -122,9 +126,29 @@ class Settings(BaseSettings):
     # 장면 소리를 만들고 나레이션 아래에 작게 깐다 — 무음 컷이 완전히 비지 않는다.
     # Veo 3.1 Fast 720p 공개 단가는 소리 포함 초당 $0.10(cost.py와 같다). "mute"는 소리를 만들지 않는다.
     veo_audio: Literal["mute", "ambient"] = "ambient"
-    # 대사 컷 목소리. "tts"는 Veo의 입 모양 시각에 인물별 TTS를 맞춰 넣는다(stages/dialogue_voice.py).
-    # "veo"는 Veo가 만든 목소리를 그대로 쓴다 — 남녀 목소리가 뒤바뀌는 일이 잦다.
-    dialogue_voice: Literal["tts", "veo"] = "tts"
+    # 대사 컷 목소리. "auto"(기본)는 Veo가 만든 목소리를 들어 보고(listen_model) 대본대로 말했고
+    # 인물 성별과 맞으면 그대로 쓰고, 말을 덧붙였거나 틀렸거나 성별이 다르면 그 컷만 TTS로 더빙한다.
+    # Veo 목소리는 입 모양과 훨씬 잘 맞는다(립싱크 LSE-C 원래 목소리 2.2~3.5 vs TTS 1.5~2.2, 2026-10 측정).
+    # "tts"는 모든 대사 컷을 인물별 TTS로, "veo"는 확인 없이 Veo 목소리 그대로.
+    dialogue_voice: Literal["auto", "tts", "veo"] = "auto"
+    # 영상 provider. "veo"(기본)는 Google Vertex Veo. "evolink"는 evolink.ai로 다른 회사 모델을
+    # 부른다(providers/evolink_video.py의 MODELS — Grok Imagine 등). dialogue_video_provider="veo"면
+    # 대사 컷만 Veo로 보낸다(입 모양이 맞는 모델 + 싼 모델 섞어 쓰기).
+    video_provider: Literal["veo", "evolink"] = "veo"
+    dialogue_video_provider: Literal["same", "veo"] = "same"
+    evolink_api_key: str = ""
+    evolink_base_url: str = "https://api.evolink.ai"
+    evolink_video_model: str = "grok-imagine-image-to-video-beta"
+    # 비우면 모델 기본 해상도(MODELS의 quality). 값이 있으면 그 해상도로 요청한다(예: 480p — 싸다).
+    evolink_quality: str = ""
+    # evolink는 그림을 URL로 받는다. 컷 그림을 올릴 Firebase Storage 버킷과 서비스 계정 키.
+    upload_bucket: str = "oddo-emotion-diary.firebasestorage.app"
+    upload_credentials: str = Field(
+        default="", validation_alias=AliasChoices("VIDEOMAKE_UPLOAD_CREDENTIALS", "GOOGLE_APPLICATION_CREDENTIALS")
+    )
+    listen_model: str = "gemini-2.5-flash"  # 대사 소리 듣기·컷 그림 확인
+    # 컷 그림 검사: 사람 수·성별·허리 위 샷 크기·카메라 응시가 틀리면 다시 그린다(최대 횟수).
+    image_check_retries: int = 2
     # 장면 소리 크기(dBFS RMS). Veo가 만든 장면 소리는 컷마다 -45~-15dB로 들쭉날쭉해서
     # 고정 이득 대신 이 크기로 맞춘다. 나레이션(약 -13dB) 아래에서는 더 작게.
     veo_ambient_gain_db: float = -36.0  # 나레이션 아래

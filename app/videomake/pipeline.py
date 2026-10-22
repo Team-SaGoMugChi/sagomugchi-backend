@@ -22,6 +22,7 @@ from .stages.character_sheet import build_character_sheet
 from .stages.compose import compose
 from .stages.cut_images import generate_cut_images
 from .stages.dialogue_voice import dub_dialogue
+from .stages.film_team import plan_with_team
 from .stages.narration import synthesize_narrations
 from .stages.reference_sheets import build_reference_sheets
 from .stages.review import build_review
@@ -54,7 +55,8 @@ class Pipeline:
         self.job.input_path.write_text(
             diary.model_dump_json(indent=2), encoding="utf-8"
         )
-        return await plan_storyboard(
+        planner = plan_with_team if self.settings.planner == "team" else plan_storyboard
+        return await planner(
             diary,
             llm=self.p.llm,
             prompts=self.prompts,
@@ -98,6 +100,7 @@ class Pipeline:
             job=self.job,
             only=only,
             force=force,
+            look=self.p.look,
         )
         build_review(sb, self.job)
         return images
@@ -168,6 +171,7 @@ class Pipeline:
             settings=self.settings,
             job=self.job,
             force=force,
+            listen=self.p.listen,
         )
 
     # --- 한 번에 --------------------------------------------------------------
