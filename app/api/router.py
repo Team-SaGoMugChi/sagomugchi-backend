@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.routes import (
+    tts,
     baseline,
     counsel,
     diary_handoff,
@@ -27,3 +28,5 @@ api_router.include_router(stt.router)
 
 api_router.include_router(text_emotion.router)
 api_router.include_router(video.router)
+
+api_router.include_router(tts.router)
