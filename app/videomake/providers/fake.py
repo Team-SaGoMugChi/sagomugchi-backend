@@ -20,7 +20,7 @@ from typing import TypeVar
 from pydantic import BaseModel
 
 from ..models import AudioResult, ImageResult, VideoHandle, VideoResult, VideoStatus
-from .base import LLMResult
+from .base import HeardSpeech, LLMResult
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -138,6 +138,7 @@ class FakeVideo:
         resolution: str,
         duration_seconds: int,
         generate_audio: bool = False,
+        speaking: bool = False,
     ) -> VideoHandle:
         self._durations[cut_index] = duration_seconds
         self._sizes[cut_index] = "720x1280" if aspect_ratio == "9:16" else "1280x720"
@@ -175,3 +176,15 @@ class FakeTTS:
             wf.setframerate(rate)
             wf.writeframes(b"\x00\x00" * n)
         return AudioResult(path=str(dest), duration_s=self.seconds)
+
+
+class FakeListen:
+    """대사 듣기 가짜. heard에 컷 소리 파일 → 결과를 넣어 두거나, 기본값(말소리 없음)을 돌려준다."""
+
+    def __init__(self, default: HeardSpeech | None = None) -> None:
+        self.default = default or HeardSpeech(text="", voice="")
+        self.calls: list[Path] = []
+
+    async def listen(self, *, audio: Path) -> HeardSpeech:
+        self.calls.append(audio)
+        return self.default
