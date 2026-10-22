@@ -212,7 +212,11 @@ async def plan_storyboard(
     prompts: PromptLibrary,
     settings: Settings,
     job: JobStore | None = None,
+    extra: str = "",
+    initial_feedback: str = "",
 ) -> Storyboard:
+    """extra: 사용자 프롬프트 끝에 붙일 자료(제작팀 모드의 제작 노트).
+    initial_feedback: 첫 시도부터 붙일 피드백(제작팀 검수 의견 반영 수정본을 만들 때)."""
     system = system_prompt(prompts, settings, diary.protagonist_name or "주인공")
     user = prompts.render(
         "storyboard_planner.user.j2",
@@ -222,10 +226,10 @@ async def plan_storyboard(
         handoff=storyboard_context(diary.handoff),
         min_total_seconds=settings.min_total_seconds,
         max_total_seconds=settings.max_total_seconds,
-    )
+    ) + extra
 
     started = time.perf_counter()
-    feedback = ""
+    feedback = initial_feedback
     last_violations: list[str] = []
 
     for attempt in range(1, MAX_ATTEMPTS + 1):

@@ -111,6 +111,23 @@ class Line(BaseModel):
     text: str = Field(description="그 인물이 말하는 한국어 대사 한 마디")
 
 
+ShotFraming = Literal["wide", "full", "medium", "insert"]
+SHOT_MIN_SECONDS = 1.5
+SHOT_MAX_COUNT = 3
+
+
+class Shot(BaseModel):
+    """컷 안의 샷 하나. 영상 모델이 한 번 생성으로 컷 전환까지 만든다(시간별 지시).
+
+    첫 샷은 컷 그림(첫 프레임) 그대로다. 이후 샷은 같은 장소·같은 순간을 다른 각도·반응·소지품으로 보여준다.
+    거리두기: 얼굴이 화면을 채우는 클로즈업은 없다. insert는 사람 얼굴이 아니라 손·물건만 가깝게 보여준다.
+    """
+
+    seconds: float = Field(ge=SHOT_MIN_SECONDS, description="샷 길이(초)")
+    framing: ShotFraming = Field(description="wide / full / medium / insert(손·물건만, 얼굴 없음)")
+    view: str = Field(description="이 샷에 보이는 것과 카메라 위치, 화면 속 사람마다 어디를 보는지 (영어)")
+
+
 class Cut(BaseModel):
     index: int = Field(ge=1)
     image_prompt: str = Field(description="무엇이 보이는가 (영어)")
@@ -129,6 +146,8 @@ class Cut(BaseModel):
     # 화면에 보이는 인물. 비어 있으면(옛 스토리보드) 주인공만 보인다고 본다.
     # 전화 속 목소리처럼 화면에 없는 화자는 넣지 않는다.
     cast: list[CastMember] = Field(default_factory=list)
+    # 컷 안의 샷들(제작팀 촬영감독). 비어 있으면 한 샷. 있으면 첫 샷이 컷 그림이고 합이 컷 길이와 같다.
+    shots: list[Shot] = Field(default_factory=list)
 
     @property
     def is_dialogue(self) -> bool:
@@ -138,6 +157,18 @@ class Cut(BaseModel):
     def is_silent(self) -> bool:
         """나레이션도 대사도 없이 화면만 보여주는 컷. 앞 컷의 나레이션이 이어서 깔릴 수 있다."""
         return not self.narration and not self.dialogue
+
+    @model_validator(mode="after")
+    def _shots_fill_the_cut(self) -> Cut:
+        if not self.shots:
+            return self
+        if len(self.shots) < 2 or len(self.shots) > SHOT_MAX_COUNT:
+            raise ValueError(f"샷은 2~{SHOT_MAX_COUNT}개다(한 샷이면 shots를 비운다).")
+        if abs(sum(s.seconds for s in self.shots) - self.duration_seconds) > 0.05:
+            raise ValueError(f"샷 길이의 합이 컷 길이({self.duration_seconds}초)와 같아야 한다.")
+        if self.dialogue:
+            raise ValueError("대사 컷은 샷을 나누지 않는다(입 모양·목소리 맞추기).")
+        return self
 
     @model_validator(mode="after")
     def _at_most_one_voice_track(self) -> Cut:

@@ -1,9 +1,30 @@
+{% if shots -%}
+This {{ duration }}-second clip is edited like a film scene: {{ shots | length }} shots with hard cuts between them,
+at the times below. Every shot is filmed by a detached third-person observer camera.
+{% set ns = namespace(t=0.0) -%}
+{% for shot in shots -%}
+[00:{{ "%04.1f" | format(ns.t) }}-00:{{ "%04.1f" | format(ns.t + shot.seconds) }}] {% if loop.first %}{{ shot.framing | capitalize }} shot exactly as the first frame{% else %}Hard cut to {{ "an" if shot.framing == "insert" else "a" }} {{ shot.framing }} shot{% endif %}: {{ shot.view }}
+{% set ns.t = ns.t + shot.seconds -%}
+{% endfor %}
+What happens across the shots: {{ motion_prompt }}
+Same people, same clothes, same place, same time of day and same light in every shot.
+{% for o in outfits | default([]) -%}
+In every shot, the person on the {{ o.position }} side of the first frame stays on that same side of the frame and keeps exactly this look: {{ o.look }}
+{% endfor -%}
+A reverse or reaction shot keeps everyone on the same side of the frame as in the first frame (do not cross the line).
+Nobody ever looks into the camera. No face fills the frame; an insert shot shows only hands or objects.
+In every shot that is not an insert, each visible person's whole head and face stay inside the frame.
+Each shot holds steady; any camera movement within a shot is very slow and minimal.
+Make exactly these {{ shots | length }} shots and exactly {{ shots | length - 1 }} cuts. The last shot continues
+unbroken to the very end of the clip; there is no cut after 00:{{ "%04.1f" | format(ns.t - shots[-1].seconds) }}.
+{%- else -%}
 {{ motion_prompt }}
 
 The camera stays a detached third-person observer at a constant distance.
 Any camera movement is very slow and minimal.
+{%- endif %}
 The colors, white balance, brightness and lighting stay exactly as in the first frame
-for the whole shot. No color grading, tint or exposure change.
+for the whole clip. No color grading, tint or exposure change.
 Every object stays solid and in place: anything a person holds stays in the same hand for the
 whole shot, and nothing in the scene appears, disappears or changes shape.
 Only the people and objects already in the first frame are in the shot; no one new enters.
