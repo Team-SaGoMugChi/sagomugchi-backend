@@ -10,4 +10,6 @@
 - No text/audio persistence, no changes to baseline extraction or counsel contracts.
 - Remaining: configure Voice credentials and deploy, then verify four voices on
   Android/iOS and collect a six-sentence baseline to assess usable voice/face samples.
-- Draft PR publication and develop merge status will be recorded separately.
+- Published draft PR: https://github.com/Team-SaGoMugChi/sagomugchi-backend/pull/86
+- Frontend draft PR: https://github.com/Team-SaGoMugChi/sagomugchi-frontend/pull/90
+- Both target develop. Neither PR has been merged; no deployment was performed.
