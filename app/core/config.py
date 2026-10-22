@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     clova_speech_secret: str | None = None
     clova_speech_timeout_sec: float = 60.0
 
+    # CLOVA Voice credentials remain on the server.
+    clova_voice_client_id: str | None = None
+    clova_voice_client_secret: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:
