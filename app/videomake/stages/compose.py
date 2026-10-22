@@ -26,6 +26,7 @@ from ..config import CROSSFADE_SECONDS, Settings
 from ..errors import VideomakeError
 from ..job import JobStore
 from ..models import Stage, Storyboard
+from .subtitles import write_subtitles
 
 log = logging.getLogger(__name__)
 
@@ -131,6 +132,7 @@ def compose(
                 under_voice.add(nxt.index)
 
     videos: list[Path] = []
+    voices: dict[int, Path] = {}  # 대사 컷마다 실제로 나가는 소리(자막 시각용)
     # (파일, 시작 시각 ms, 볼륨 dB)
     audios: list[tuple[Path, int, float]] = []
     for cut, start in zip(sb.cuts, starts):
@@ -145,11 +147,13 @@ def compose(
         dubbed = dialogues.get(cut.index) if cut.is_dialogue else None
         if dubbed is not None:
             audios.append((dubbed, start_ms, 0.0))
+            voices[cut.index] = dubbed
         elif cut.is_dialogue or settings.veo_audio == "ambient":
             voice = work / f"{cut.index:02d}_veo.wav"
             if _extract_audio(src, voice, seconds=cut.duration_seconds):
                 if cut.is_dialogue:
                     gain = 0.0
+                    voices[cut.index] = voice
                 else:
                     target = (
                         settings.veo_ambient_gain_db
@@ -221,6 +225,11 @@ def compose(
         str(job.final_path),
     ]
     _run(args)
+    try:
+        write_subtitles(sb, job, starts=starts, total=total, narrations=narrations, voices=voices,
+                        narration_delay=NARRATION_DELAY_MS / 1000)
+    except Exception:  # 자막은 덧붙는 산출물이다. 실패해도 영상은 완성으로 둔다.
+        log.exception("자막 만들기 실패 — 영상은 그대로 완성")
 
     job.record_stage(
         Stage.COMPOSE,

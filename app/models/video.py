@@ -54,3 +54,10 @@ class VideoJobStatus(BaseModel):
             "썸네일 생성에 실패하면 null — 영상은 그대로 볼 수 있다"
         ),
     )
+    subtitles_url: str | None = Field(
+        None,
+        description=(
+            "status=done이고 자막이 있을 때 WebVTT 자막 경로(서버 기준 상대 경로). 영상에 글자를 박지 않으므로 "
+            "앱 플레이어가 켜고 끈다. 자막 생성에 실패하면 null"
+        ),
+    )
