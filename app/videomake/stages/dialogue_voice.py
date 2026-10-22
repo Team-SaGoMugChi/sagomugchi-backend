@@ -11,11 +11,17 @@ Veo는 대사 컷에서 말하는 사람의 입은 맞게 움직이지만, 목�
 
 말소리 구간을 대사 줄 수만큼 못 찾으면 첫 말소리부터(없으면 컷 시작 조금 뒤부터) 차례로 놓는다.
 TTS가 실패하면 그 컷은 Veo 오디오를 그대로 쓴다(compose가 고른다).
+
+dialogue_voice="auto"(기본)는 더빙 전에 Veo 목소리를 먼저 들어 본다(ListenProvider). 대본대로 말했고
+목소리 성별이 인물과 맞으면 더빙하지 않고 Veo 목소리를 쓴다 — 입 모양과 가장 잘 맞는다.
+말을 덧붙였거나, 대본과 다르거나, 성별이 다르거나, 들을 수 없으면 그 컷만 더빙한다.
+판단은 cuts/NN/voice_check.json에 남는다.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import shutil
@@ -23,6 +29,7 @@ import subprocess
 import time
 import wave
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 
 import numpy as np
@@ -32,7 +39,7 @@ from ..errors import VideomakeError
 from ..job import JobStore
 from ..models import Cut, Storyboard
 from ..prompts import PromptLibrary
-from ..providers.base import TTSProvider
+from ..providers.base import HeardSpeech, ListenProvider, TTSProvider
 from .cut_images import voice_off_screen
 
 log = logging.getLogger(__name__)
@@ -56,6 +63,13 @@ SPEECH_LEVEL_DB = -13.0  # 나레이션(Gemini TTS)이 말할 때의 크기와 �
 PEAK_LIMIT_DB = -1.0
 MAX_GAIN_DB = 12.0
 VEO_VOICE_GAIN = 0.015  # 바꾼 구간의 Veo 말소리를 이만큼으로 줄인다(약 -36dB)
+# Veo 목소리 확인 기준 (dialogue_voice="auto")
+# 대본보다 이만큼(또는 대본의 10%) 넘게 길게 들리면 말을 덧붙인 것. 20%로는 대사 끝에 붙은
+# "한기유"(3글자)를 놓쳤다(2026-10-21).
+EXTRA_CHARS_MIN = 2
+EXTRA_CHARS_RATIO = 0.1
+MAX_SCRIPT_ERROR = 0.25  # 글자 오류율이 이보다 크면 대본과 다른 말
+LISTEN_PRICE_PER_CUT = Decimal("0.001")
 
 
 @dataclass(frozen=True)
@@ -88,6 +102,35 @@ def assign_voices(sb: Storyboard, narrator_voice: str) -> dict[str, str]:
         voices[person.name] = pool[used[gender] % len(pool)]
         used[gender] += 1
     return voices
+
+
+def _letters(text: str) -> str:
+    return re.sub(r"[^가-힣a-zA-Z0-9]", "", text or "")
+
+
+def _edit_distance(a: str, b: str) -> int:
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i] + [0] * len(b)
+        for j, cb in enumerate(b, 1):
+            cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb))
+        prev = cur
+    return prev[-1]
+
+
+def veo_voice_ok(script: str, heard: HeardSpeech, gender: str | None) -> tuple[bool, str]:
+    """Veo가 만든 대사 목소리를 그대로 써도 되는가. (판단, 이유)"""
+    ref, hyp = _letters(script), _letters(heard.text)
+    if not hyp:
+        return False, "말소리를 못 들음"
+    if gender and heard.voice and heard.voice != gender:
+        return False, f"목소리 성별이 다름({heard.voice}, 인물 {gender})"
+    if len(hyp) - len(ref) > max(EXTRA_CHARS_MIN, len(ref) * EXTRA_CHARS_RATIO):
+        return False, "대본에 없는 말을 덧붙임"
+    error = _edit_distance(ref, hyp) / max(len(ref), 1)
+    if error > MAX_SCRIPT_ERROR:
+        return False, f"대본과 다른 말(글자 오류율 {error:.0%})"
+    return True, f"대본대로 말함(글자 오류율 {error:.0%})"
 
 
 def spoken_text(text: str) -> str:
@@ -281,10 +324,11 @@ async def dub_dialogue(
     job: JobStore,
     force: bool = False,
     concurrency: int = 3,
+    listen: ListenProvider | None = None,
 ) -> dict[int, Path]:
-    """대사 컷마다 더빙한 오디오(cuts/NN/dialogue.wav). 실패한 컷은 빠진다."""
+    """대사 컷마다 더빙한 오디오(cuts/NN/dialogue.wav). 실패한 컷과 Veo 목소리를 그대로 쓰는 컷은 빠진다."""
     cuts = [c for c in sb.cuts if c.is_dialogue]
-    if not cuts or settings.dialogue_voice != "tts":
+    if not cuts or settings.dialogue_voice == "veo":
         return {}
     voices = assign_voices(sb, settings.tts_voice)
     sem = asyncio.Semaphore(concurrency)
@@ -325,8 +369,38 @@ async def dub_dialogue(
         )
         return chosen
 
+    async def keep_veo_voice(cut: Cut) -> bool:
+        """Veo 목소리를 들어 보고 그대로 써도 되면 True. 들을 수 없으면 False(더빙)."""
+        record = job.cut_dir(cut.index) / "voice_check.json"
+        if record.exists() and not force:
+            return bool(json.loads(record.read_text(encoding="utf-8"))["keep_veo_voice"])
+        script = " ".join(line.text for line in cut.dialogue)
+        genders = {voice_gender(f"{p.voice} {p.appearance}") for p in
+                   (sb.character(line.speaker) for line in cut.dialogue) if p}
+        gender = genders.pop() if len(genders) == 1 else None
+        clip = job.cut_dir(cut.index) / "veo_listen.wav"
+        try:
+            _run([_ffmpeg(), "-y", "-i", str(job.cut_video(cut.index)), "-t", str(cut.duration_seconds),
+                  "-vn", "-ar", str(ANALYSIS_RATE), "-ac", "1", str(clip)])
+            async with sem:
+                heard = await listen.listen(audio=clip)
+            job.record_cost(f"cut{cut.index}_listen", LISTEN_PRICE_PER_CUT)
+        except Exception as exc:
+            log.warning("컷 %d Veo 목소리를 듣지 못해 더빙한다: %s", cut.index, exc)
+            return False
+        ok, reason = veo_voice_ok(script, heard, gender)
+        record.write_text(json.dumps({"keep_veo_voice": ok, "reason": reason, "script": script,
+                                      "heard": heard.text, "heard_voice": heard.voice, "gender": gender},
+                                     ensure_ascii=False, indent=1), encoding="utf-8")
+        log.info("컷 %d 대사 목소리: %s — %s (들림: %s)", cut.index,
+                 "Veo 그대로" if ok else "TTS 더빙", reason, heard.text)
+        return ok
+
     async def one(cut: Cut) -> tuple[int, Path | None]:
         dest = job.cut_dialogue(cut.index)
+        if settings.dialogue_voice == "auto" and listen is not None and await keep_veo_voice(cut):
+            dest.unlink(missing_ok=True)
+            return cut.index, None
         if dest.exists() and not force:
             log.info("컷 %d 대사 더빙 캐시 재사용", cut.index)
             return cut.index, dest

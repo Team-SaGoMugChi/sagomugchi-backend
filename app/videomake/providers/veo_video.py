@@ -62,6 +62,7 @@ class VeoVideoProvider:
         resolution: str,
         duration_seconds: int,
         generate_audio: bool = False,
+        speaking: bool = False,
     ) -> VideoHandle:
         mime = mimetypes.guess_type(first_frame.name)[0] or "image/png"
         source = types.GenerateVideosSource(

@@ -57,3 +57,17 @@ def get_video_thumbnail(
             detail={"code": "thumbnail_not_ready", "message": "썸네일이 아직 준비되지 않았어요."},
         )
     return FileResponse(path, media_type="image/jpeg", filename=f"{job_id}.jpg")
+
+
+@router.get("/jobs/{job_id}/subtitles")
+def get_video_subtitles(
+    job_id: str, jobs: VideoJobManager = Depends(get_video_jobs)
+) -> FileResponse:
+    """완성 영상의 자막(WebVTT). 영상에 글자를 박지 않고 따로 준다 — 앱에서 켜고 끈다."""
+    path = jobs.subtitles_path(job_id)
+    if path is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "subtitles_not_ready", "message": "자막이 아직 준비되지 않았어요."},
+        )
+    return FileResponse(path, media_type="text/vtt; charset=utf-8", filename=f"{job_id}.vtt")

@@ -75,6 +75,11 @@ class JobStore:
         return self.dir / "final.mp4"
 
     @property
+    def subtitles_path(self) -> Path:
+        """완성 영상과 같은 시각의 WebVTT 자막(앱에서 켜고 끈다)."""
+        return self.dir / "subtitles.vtt"
+
+    @property
     def thumbnail_path(self) -> Path:
         """대표 장면 가로 썸네일(앱 홈 카드용)."""
         return self.dir / "thumbnail.jpg"

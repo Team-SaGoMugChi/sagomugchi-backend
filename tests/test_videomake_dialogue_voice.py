@@ -1,6 +1,7 @@
 """대사 더빙 — Veo의 입 모양 시각에 인물별 TTS 목소리를 맞춰 넣는다. 비용 0."""
 
 import asyncio
+import json
 import shutil
 
 import numpy as np
@@ -192,3 +193,140 @@ def test_off_screen_line_keeps_its_natural_speed():
 
     assert slot.tempo == pytest.approx(1.0)
     assert slot.start == pytest.approx(0.8)
+
+
+def test_veo_voice_check_rules():
+    from app.videomake.providers.base import HeardSpeech
+    from app.videomake.stages.dialogue_voice import veo_voice_ok
+
+    line = "그거 제 기획서에 있던 내용 아니에요?"
+    assert veo_voice_ok(line, HeardSpeech(text="그거 제 기획서에 있던 내용 아니에요", voice="f"), "f")[0]
+    assert veo_voice_ok("마지막이니까 단팥빵 두 개 그냥 가져가.", HeardSpeech(text="마지막이니까 단팥빵 두개 그냥 가져가", voice=""), "f")[0]
+    # 대본 뒤에 웅얼거림을 덧붙임 (실제 대표 영상에서 관측)
+    ok, why = veo_voice_ok(line, HeardSpeech(text=line + " 며칠을 너무 차고 있었는데", voice="f"), "f")
+    assert not ok and "덧붙" in why
+    assert not veo_voice_ok(line, HeardSpeech(text=line, voice="m"), "f")[0]  # 여자 인물인데 남자 목소리
+    # 끝에 짧은 말을 덧붙임 (실제 관측: "…굴지 마. 한기유.")
+    long_line = "팀 아이디어는 다 같이 한 거고, 너무 예민하게 굴지 마."
+    assert not veo_voice_ok(long_line, HeardSpeech(text="이 팀 아이디어는 다 같이 한 거고. 너무 예민하게 굴지 마. 한기유.", voice="m"), "m")[0]
+    assert not veo_voice_ok(line, HeardSpeech(text="", voice=""), "f")[0]
+    assert not veo_voice_ok(line, HeardSpeech(text="오늘 회의 정말 좋았어요 다들", voice="f"), "f")[0]
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg 필요")
+def test_auto_keeps_veo_voice_when_it_says_the_script(tmp_path, monkeypatch):
+    from app.videomake.providers.base import HeardSpeech
+
+    pipe = _pipeline(tmp_path, monkeypatch)
+    listen = fake.FakeListen(HeardSpeech(text="왜 늦었어", voice="f"))
+    pipe.p = pipe.p.__class__(**{**pipe.p.__dict__, "listen": listen})
+    final = _finish(pipe)
+
+    assert final.exists()
+    assert len(listen.calls) == 1  # 대사 컷만 듣는다
+    assert not pipe.job.cut_dialogue(2).exists()
+    assert not (pipe.job.cut_dir(2) / "line_1.wav").exists()  # TTS를 부르지 않았다
+    assert '"keep_veo_voice": true' in (pipe.job.cut_dir(2) / "voice_check.json").read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg 필요")
+def test_auto_dubs_when_veo_adds_words(tmp_path, monkeypatch):
+    from app.videomake.providers.base import HeardSpeech
+
+    pipe = _pipeline(tmp_path, monkeypatch)
+    listen = fake.FakeListen(HeardSpeech(text="왜 늦었어 진짜 너무하다 정말", voice="f"))
+    pipe.p = pipe.p.__class__(**{**pipe.p.__dict__, "listen": listen})
+    _finish(pipe)
+
+    assert pipe.job.cut_dialogue(2).exists()
+    assert '"keep_veo_voice": false' in (pipe.job.cut_dir(2) / "voice_check.json").read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg 필요")
+def test_auto_dubs_when_listening_fails(tmp_path, monkeypatch):
+    class _Broken:
+        async def listen(self, *, audio):
+            raise RuntimeError("network")
+
+    pipe = _pipeline(tmp_path, monkeypatch)
+    pipe.p = pipe.p.__class__(**{**pipe.p.__dict__, "listen": _Broken()})
+    _finish(pipe)
+    assert pipe.job.cut_dialogue(2).exists()
+
+
+def test_default_dialogue_voice_is_auto():
+    assert Settings(_env_file=None).dialogue_voice == "auto"
+
+
+def test_listen_reply_as_list_is_read():
+    from app.videomake.providers.gemini_listen import parse_heard
+
+    assert parse_heard('[{"text": "안녕", "voice": "f"}]')["text"] == "안녕"
+    assert parse_heard('{"text": "안녕", "voice": "m"}')["voice"] == "m"
+    assert parse_heard("[]") == {}
+
+
+def _cut_check_sb():
+    from app.videomake.models import Storyboard
+
+    payload = fake.demo_storyboard_payload(2)
+    payload["supporting"] = [{"name": "본부장", "appearance": "A man in his fifties with gray hair.", "voice": "low, a man"}]
+    payload["cuts"][1].update(narration="", camera_distance="medium", cast=[{"name": "본부장", "position": "right"}],
+                              dialogue=[{"speaker": "본부장", "text": "좋은 아이디어네요."}], duration_seconds=4)
+    return Storyboard.model_validate(payload)
+
+
+def test_image_check_finds_small_wrong_gender_and_camera_gaze():
+    from app.videomake.providers.base import SeenFrame, SeenPerson
+    from app.videomake.stages.cut_images import image_problems
+
+    sb = _cut_check_sb()
+    cut = sb.cuts[1]
+    ok = SeenFrame(people=[SeenPerson(gender="m", height_ratio=0.6)], looks_at_camera=False)
+    assert image_problems(sb, cut, ok) == []
+    # 실제 관측: 허리 위 샷인데 아주 작게, 50대 남자를 여자로
+    bad = SeenFrame(people=[SeenPerson(gender="f", height_ratio=0.15)], looks_at_camera=True)
+    problems = " ".join(image_problems(sb, cut, bad))
+    assert "MEDIUM" in problems and "man" in problems and "camera" in problems
+    # 실제 관측: 키는 크게 어림(0.61)했지만 다리까지 보이는 전신 — 허리 위 샷이 아니다
+    full_body = SeenFrame(people=[SeenPerson(gender="m", height_ratio=0.61, legs_visible=True)], looks_at_camera=False)
+    assert "MEDIUM" in " ".join(image_problems(sb, cut, full_body))
+    empty = SeenFrame(people=[SeenPerson(gender="m", height_ratio=0.03)], looks_at_camera=False)  # 배경 행인뿐
+    assert "Only 0" in " ".join(image_problems(sb, cut, empty))
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg 필요")
+def test_wrong_cut_image_is_redrawn_with_the_problem(tmp_path, monkeypatch):
+    from app.videomake.providers.base import SeenFrame, SeenPerson
+
+    class _Look:
+        def __init__(self):
+            self.n = 0
+
+        async def look(self, *, image):
+            self.n += 1  # 첫 그림만 카메라를 본다
+            return SeenFrame(people=[SeenPerson(gender="", height_ratio=0.6)] * 2, looks_at_camera=self.n == 1)
+
+    class _Image(fake.FakeImage):
+        def __init__(self):
+            super().__init__()
+            self.prompts = []
+
+        async def generate(self, *, prompt, dest, **kw):
+            self.prompts.append(prompt)
+            return await super().generate(prompt=prompt, dest=dest, **kw)
+
+    pipe = _pipeline(tmp_path, monkeypatch)
+    img = _Image()
+    pipe.p = pipe.p.__class__(**{**pipe.p.__dict__, "look": _Look(), "image": img})
+
+    async def run():
+        sb = await pipe.run_to_gate(DiaryInput(text="일기"))
+        return sb
+
+    asyncio.run(run())
+    redraws = [p for p in img.prompts if "THE PREVIOUS ATTEMPT WAS WRONG" in p]
+    assert len(redraws) == 1  # 첫 검사에서 틀린 그림 하나만 다시 그린다
+    checks = [json.loads(p.read_text(encoding="utf-8")) for p in pipe.job.dir.glob("cuts/*/image_check.json")]
+    assert sorted(len(c) for c in checks) == [1, 2]  # 다시 그린 컷은 검사 기록이 두 번
+    assert any(c[0]["problems"] for c in checks)

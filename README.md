@@ -156,12 +156,45 @@ curl -X POST http://localhost:8000/diary/step2/analyze \
 
 나레이션 목소리는 `VIDEOMAKE_TTS_VOICE`(기본 `Leda`)다. 2026-10 목소리 6종 비교로 정했다.
 
-**대사 목소리 (`VIDEOMAKE_DIALOGUE_VOICE`, 기본 `tts`):** Veo가 만든 대사 목소리는 남녀가 바뀌거나
-컷마다 같은 인물 목소리가 달라지고, 대본에 없는 말을 덧붙였다. 그래서 입 모양은 Veo 것을 쓰고
-목소리만 인물별 Gemini TTS로 바꾼다(`stages/dialogue_voice.py`): Veo 소리에서 입이 움직인 시간을
-찾고 → 대사를 3번 읽혀 그 길이에 가장 가까운 것을 골라 0.85~1.35배로 맞추고 → Veo 원래 목소리는 줄인다.
-인물마다 나레이션과 다른 목소리를 정해 컷이 바뀌어도 같다. 화면 밖 목소리는 원래 속도로 넣는다.
-`veo`로 두면 Veo 목소리를 그대로 쓴다.
+**대사 목소리 (`VIDEOMAKE_DIALOGUE_VOICE`, 기본 `auto`):** 영상 모델이 만든 대사 목소리가 입 모양과
+가장 잘 맞는다(립싱크 LSE-C 원래 목소리 2.2~3.5 vs TTS 1.5~2.2, 2026-10 측정). 다만 대본에 없는 말을
+덧붙이거나 성별이 다른 목소리가 나올 때가 있다. 그래서 `auto`는 대사 컷 소리를 Gemini(`VIDEOMAKE_LISTEN_MODEL`)가
+듣고 받아써 대본과 비교한다 — 대본대로 말했고 목소리 성별이 인물과 맞으면 그대로 쓰고, 말을 덧붙였거나
+(대본보다 10% 이상 길게) 다르거나 성별이 다르면 **그 컷만** 인물별 Gemini TTS로 더빙한다
+(`stages/dialogue_voice.py`, 판단은 `cuts/NN/voice_check.json`). 더빙은 Veo 소리에서 입이 움직인 시간을
+찾고 → 대사를 3번 읽혀 그 길이에 가장 가까운 것을 골라 0.85~1.35배로 맞춘다. `tts`는 모든 대사 컷을
+더빙, `veo`는 확인 없이 영상 모델 목소리 그대로다.
+
+**컷 그림 검사:** 그림 모델이 지시와 다르게 그리는 일이 있다(두 사람인데 한 명만, 허리 위 샷인데 전신,
+인물 성별이 다름, 카메라를 봄). 컷 그림마다 Gemini가 사람 수·성별·다리가 보이는지·카메라 응시를 확인하고,
+틀리면 무엇이 틀렸는지 붙여 다시 그린다(최대 `VIDEOMAKE_IMAGE_CHECK_RETRIES`=2번, 기록은 `cuts/NN/image_check.json`).
+그림 한 장 확인에 약 1원.
+
+**제작팀 모드 (`VIDEOMAKE_PLANNER=team`, 기본 `single`):** 시나리오를 한 번에 쓰지 않고 역할을 나눠 다듬는다
+(`stages/film_team.py`, 회의록은 작업 폴더 `team/`).
+
+| 단계 | 하는 일 |
+|---|---|
+| 작가 | 일기 → 제작 노트(사건·실제 상황 기준 감정·인물 성별·소지품·일기 속 말). 전해 들은 말("~라고 했다")은 뜻 그대로 대사 후보로 |
+| 감독 | 제작 노트 + 연출 규칙 → 스토리보드 초안 |
+| 스크립터 | 초안 vs 일기: 빠진 사실·지어낸 내용·감정 불일치·연속성 지적 (승인될 때까지 최대 2번) |
+| 감독(수정) | 지적만 반영해 수정 |
+| 촬영감독 | 나레이션·무음 컷 일부(6초 이상, 절반 이하)를 2~3개 샷으로 나눈다(같은 순간의 다른 각도·반응·손과 물건). `VIDEOMAKE_SHOT_SPLIT=false`면 끈다 |
+
+샷을 나눈 컷은 Veo에 `[00:00.0-00:02.0] … Hard cut to …` 형식의 시간별 지시로 보내 **한 번 생성 안에서**
+컷이 바뀐다 — 생성 길이가 같아 비용은 그대로다. 거리두기는 유지한다(얼굴 클로즈업 대신 손·물건 insert,
+샷마다 시선 방향과 인물 좌우·옷차림 고정). 대사 컷은 입 모양 때문에 나누지 않는다.
+측정(장문 일기 4편): 사실 보존 88% → 94%, 감정 적합 81% → 98%.
+
+**자막:** 합성할 때 같은 시각 계산으로 WebVTT 자막(`subtitles.vtt`)을 같이 만든다. 영상에 글자를 박지
+않으므로 앱 플레이어가 켜고 끈다. 상태 응답의 `subtitles_url` → `GET /video/jobs/{id}/subtitles`.
+
+**영상 모델 바꾸기 (`VIDEOMAKE_VIDEO_PROVIDER=evolink`, 기본 `veo`):** evolink.ai로 다른 회사 영상 모델을
+부른다(`providers/evolink_video.py`의 `MODELS`, 기본 `grok-imagine-image-to-video-beta`). 컷 그림은 Firebase
+Storage에 올려 서명된 주소로 넘긴다. 필요한 `.env`: `VIDEOMAKE_EVOLINK_API_KEY`, 그리고 그림 업로드용
+`GOOGLE_APPLICATION_CREDENTIALS`(이미 쓰는 서비스 계정 키). `VIDEOMAKE_EVOLINK_QUALITY=480p`면 싸다
+(Grok 480p 50초 한 편 영상 생성 약 87크레딧 ≈ 1,700원, 720p 약 122크레딧). Grok은 6초 미만 컷도 6초로
+만들어 과금하고, 합성이 컷 길이로 자른다. 대사 목소리를 살리려면 `VIDEOMAKE_DIALOGUE_VOICE=veo` 또는 `auto`.
 
 **장면 소리 (`VIDEOMAKE_VEO_AUDIO`, 기본 `ambient`):** 대사 없는 컷도 Veo가 발소리·거리·그릇 소리 같은
 장면 소리를 만들고, 컷마다 같은 크기로 맞춰 나레이션 아래(-36dB)·목소리 없는 컷(-28dB)에 깐다.
@@ -175,7 +208,7 @@ curl -X POST http://localhost:8000/video/jobs -H 'Content-Type: application/json
 # → {"job_id": "…", "status": "running", "stage": "storyboard", "progress": 0.0, …}
 
 curl http://localhost:8000/video/jobs/<job_id>
-# → status: running | done | failed, stage, progress(0~1), error, video_url
+# → status: running | done | failed, stage, progress(0~1), error, video_url, thumbnail_url, subtitles_url
 ```
 
 - **승인 게이트는 서버가 자동 통과**시킨다(앱 사용자는 컷을 검수하지 않음). 대신

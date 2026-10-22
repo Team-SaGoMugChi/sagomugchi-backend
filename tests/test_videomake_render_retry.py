@@ -60,3 +60,39 @@ def test_failed_render_is_resubmitted_on_retry(tmp_path, monkeypatch):
     assert pipe.job.cut_video(1).exists()
     assert video.submits == 3  # 두 컷 + 실패한 컷 1 재제출
 
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg 필요")
+def test_safety_filtered_render_is_resubmitted_on_retry(tmp_path, monkeypatch):
+    """작업은 끝났지만 영상이 없는 컷(안전 필터)도 핸들을 지워 다시 시도할 때 새로 제출한다."""
+    from app.videomake.errors import ProviderError
+
+    class _FilteredOnce(fake.FakeVideo):
+        def __init__(self):
+            super().__init__()
+            self.submits = 0
+
+        async def submit(self, **kwargs):
+            self.submits += 1
+            return await super().submit(**kwargs)
+
+        async def fetch(self, handle, dest):
+            if self.submits <= 2 and handle.cut_index == 1:
+                raise ProviderError("컷 1: 생성된 영상이 없다. 안전 필터 사유: blocked")
+            return await super().fetch(handle, dest)
+
+    pipe = _pipeline(tmp_path, monkeypatch)
+    video = _FilteredOnce()
+    pipe.p = pipe.p.__class__(**{**pipe.p.__dict__, "video": video})
+
+    async def run():
+        sb = await pipe.run_to_gate(DiaryInput(text="일기"))
+        pipe.approve(sb)
+        with pytest.raises(ProviderError, match="안전 필터"):
+            await pipe.render(sb)
+        assert not pipe.job.cut_handle(1).exists()
+        await pipe.render(sb)
+
+    asyncio.run(run())
+    assert pipe.job.cut_video(1).exists()
+    assert video.submits == 3

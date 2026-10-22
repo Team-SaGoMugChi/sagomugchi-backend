@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from pathlib import Path
@@ -18,11 +19,42 @@ from ..config import Settings
 from ..job import JobStore
 from ..models import Cut, Stage, Storyboard
 from ..prompts import PromptLibrary
-from ..providers.base import ImageProvider
+from ..providers.base import ImageProvider, LookProvider, SeenFrame
 
 log = logging.getLogger(__name__)
 
 _POSITION_ORDER = {"left": 0, "center": 1, "right": 2}
+
+
+MEDIUM_MIN_HEIGHT = 0.35  # 허리 위 샷: 가장 큰 사람이 화면 높이의 이만큼은 넘어야 한다
+TINY_PERSON = 0.08  # 이보다 작은 사람은 배경 행인으로 본다
+
+
+def image_problems(sb: Storyboard, cut: Cut, seen: SeenFrame) -> list[str]:
+    """컷 그림이 컷 설계와 다른 점(영어 — 다시 그릴 때 그림 모델에 그대로 알려준다)."""
+    from .dialogue_voice import voice_gender
+
+    cast = sb.visible_cast(cut)
+    people = [p for p in seen.people if p.height_ratio >= TINY_PERSON]
+    problems = []
+    if len(people) < len(cast):
+        problems.append(f"Only {len(people)} person(s) are visible but the scene needs {len(cast)}.")
+    want = [voice_gender(f"{p.voice} {p.appearance}") for p in (sb.character(m.name) for m in cast) if p]
+    for g, word in (("m", "man"), ("f", "woman")):
+        # 성별을 모른다고 답한 사람은 어느 쪽으로든 셀 수 있다 — 확실히 다를 때만 틀렸다고 본다.
+        need = want.count(g)
+        got = sum(1 for p in people if p.gender in (g, ""))
+        if need and got < need:
+            problems.append(f"The scene needs {need} {word}(s) but {got} are drawn; draw each person exactly as their reference sheet.")
+    # 허리 위 샷: 사람이 너무 작거나, 무릎 아래가 보이면(사실상 전신 샷) 다시 그린다.
+    # Gemini의 키 어림값은 실제보다 크게 나와(수빈 실제 약 0.35 → 0.61) 다리가 보이는지를 함께 본다.
+    if cut.camera_distance == "medium" and cast and people and (
+        max(p.height_ratio for p in people) < MEDIUM_MIN_HEIGHT or all(p.legs_visible for p in people)
+    ):
+        problems.append("This must be a MEDIUM shot cropped at the waist: legs and feet must not be visible, and the person must fill most of the frame height.")
+    if seen.looks_at_camera:
+        problems.append("Someone looks into the camera. Nobody may look at the camera.")
+    return problems
 
 
 async def generate_cut_images(
@@ -37,6 +69,7 @@ async def generate_cut_images(
     location_sheets: dict[str, Path] | None = None,
     only: set[int] | None = None,
     force: bool = False,
+    look: LookProvider | None = None,
 ) -> dict[int, Path]:
     """sheet: 주인공 캐릭터 시트. character_sheets: 조연 이름 → 시트. location_sheets: 장소 이름 → 시트."""
     sheets = {sb.protagonist.name: sheet, **(character_sheets or {})}
@@ -61,16 +94,38 @@ async def generate_cut_images(
             aspect_ratio=settings.aspect_ratio,
             moment_image=moment_image if moment_image and moment_image.exists() else None,
         )
-        async with sem:
-            result = await image.generate(
-                prompt=prompt,
-                dest=dest,
-                references=references,
-                aspect_ratio=settings.aspect_ratio,
-                image_size=settings.image_size,
-            )
-        log.info("컷 %d 이미지 %.1fs / $%s", cut.index, result.elapsed_s, result.cost_usd)
-        job.record_cost(f"cut{cut.index}_image", result.cost_usd)
+        async def draw(text: str, tag: str) -> None:
+            async with sem:
+                result = await image.generate(
+                    prompt=text,
+                    dest=dest,
+                    references=references,
+                    aspect_ratio=settings.aspect_ratio,
+                    image_size=settings.image_size,
+                )
+            log.info("컷 %d 이미지 %.1fs / $%s", cut.index, result.elapsed_s, result.cost_usd)
+            job.record_cost(f"cut{cut.index}_image{tag}", result.cost_usd)
+
+        await draw(prompt, "")
+        # 그림 검사: 사람 수·성별·허리 위 크기·카메라 응시. 틀리면 무엇이 틀렸는지 알려주고 다시 그린다.
+        checks = []
+        for attempt in range(1, settings.image_check_retries + 2):
+            if look is None:
+                break
+            try:
+                seen = await look.look(image=dest)
+            except Exception as exc:
+                log.warning("컷 %d 그림 확인 실패 — 그대로 쓴다: %s", cut.index, exc)
+                break
+            problems = image_problems(sb, cut, seen)
+            checks.append({"attempt": attempt, "problems": problems, "seen": seen.model_dump()})
+            if not problems or attempt > settings.image_check_retries:
+                break
+            log.warning("컷 %d 그림 다시 그림(%d): %s", cut.index, attempt, problems)
+            await draw(prompt + "\n\nTHE PREVIOUS ATTEMPT WAS WRONG. Fix this:\n- " + "\n- ".join(problems), f"_retry{attempt}")
+        if checks:
+            (job.cut_dir(cut.index) / "image_check.json").write_text(
+                json.dumps(checks, ensure_ascii=False, indent=1), encoding="utf-8")
         # 이미지를 새로 뽑았으면 기존 승인은 무효다.
         job.unapprove({cut.index})
         return cut.index, dest

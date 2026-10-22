@@ -100,6 +100,7 @@ class VideoProvider(Protocol):
         resolution: str,
         duration_seconds: int,
         generate_audio: bool = False,
+        speaking: bool = False,
     ) -> VideoHandle: ...
 
     async def poll(self, handle: VideoHandle) -> VideoStatus: ...
@@ -114,3 +115,33 @@ class TTSProvider(Protocol):
     async def synthesize(
         self, *, text: str, dest: Path, voice: str, style_prompt: str
     ) -> AudioResult: ...
+
+
+class HeardSpeech(BaseModel):
+    """대사 컷 소리를 들어 본 결과 — 무슨 말을 했나, 어떤 목소리였나."""
+
+    text: str
+    voice: str  # "m"(남자) / "f"(여자) / ""(말소리 없음·모름)
+
+
+@runtime_checkable
+class ListenProvider(Protocol):
+    async def listen(self, *, audio: Path) -> HeardSpeech: ...
+
+
+class SeenPerson(BaseModel):
+    gender: str  # "m" / "f" / ""
+    height_ratio: float  # 화면 높이 대비 그 사람이 보이는 부분의 높이(0~1) — 어림값이라 크게 나오는 편
+    legs_visible: bool = False  # 무릎 아래(다리·발)가 보이는가 — 허리 위 샷이면 보이지 않아야 한다
+
+
+class SeenFrame(BaseModel):
+    """컷 그림을 보고 확인한 결과."""
+
+    people: list[SeenPerson]
+    looks_at_camera: bool
+
+
+@runtime_checkable
+class LookProvider(Protocol):
+    async def look(self, *, image: Path) -> SeenFrame: ...

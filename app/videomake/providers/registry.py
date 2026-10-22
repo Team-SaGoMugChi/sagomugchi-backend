@@ -12,13 +12,40 @@ from openai import AsyncOpenAI
 
 from ..config import Settings
 from ..errors import ConfigError
-from .base import ImageProvider, LLMProvider, TTSProvider, VideoProvider
-from .fake import FakeImage, FakeLLM, FakeTTS, FakeVideo
+from .base import ImageProvider, ListenProvider, LLMProvider, LookProvider, TTSProvider, VideoProvider
+from .fake import FakeImage, FakeListen, FakeLLM, FakeTTS, FakeVideo
 from .gemini_image import GeminiImageProvider
+from .gemini_listen import GeminiListenProvider
+from .gemini_look import GeminiLookProvider
 from .gemini_llm import GeminiLLMProvider
 from .gemini_tts import GeminiTTSProvider
 from .openai_llm import OpenAILLMProvider
 from .veo_video import VeoVideoProvider
+
+
+def build_video(settings: Settings, video_client: genai.Client, job_key: str = "job") -> VideoProvider:
+    """영상 provider. evolink면 그림 업로드 주소와 함께 만들고, 대사 컷만 Veo로 보낼 수도 있다."""
+    veo = VeoVideoProvider(video_client, settings.video_model)
+    if settings.video_provider != "evolink":
+        return veo
+    from .evolink_video import EvolinkVideoProvider
+    from .image_host import FirebaseImageHost
+    from .routing_video import RoutingVideoProvider
+
+    if not settings.evolink_api_key:
+        raise ConfigError("VIDEOMAKE_VIDEO_PROVIDER=evolink인데 VIDEOMAKE_EVOLINK_API_KEY가 없다.")
+    host = FirebaseImageHost(settings.upload_bucket, settings.upload_credentials)
+    evolink = EvolinkVideoProvider(
+        api_key=settings.evolink_api_key,
+        model=settings.evolink_video_model,
+        image_host=host,
+        base_url=settings.evolink_base_url,
+        job_key=job_key,
+        quality=settings.evolink_quality or None,
+    )
+    if settings.dialogue_video_provider == "veo":
+        return RoutingVideoProvider(default=evolink, speaking=veo)
+    return evolink
 
 
 @dataclass(frozen=True)
@@ -30,6 +57,10 @@ class Providers:
     # 더미 모드에서는 실제 클라이언트가 없다.
     client: genai.Client | None
     video_client: genai.Client | None
+    # 대사 컷 소리 듣기(dialogue_voice="auto"). 없으면 대사는 TTS로 더빙한다.
+    listen: ListenProvider | None = None
+    # 컷 그림 검사. 없으면 검사하지 않는다(더미 모드).
+    look: LookProvider | None = None
 
 
 def build_providers(settings: Settings) -> Providers:
@@ -53,10 +84,12 @@ def build_providers(settings: Settings) -> Providers:
     return Providers(
         llm=build_llm(settings, client),
         image=GeminiImageProvider(client, settings.image_model),
-        video=VeoVideoProvider(video_client, settings.video_model),
+        video=build_video(settings, video_client),
         tts=GeminiTTSProvider(client, settings.tts_model),
         client=client,
         video_client=video_client,
+        listen=GeminiListenProvider(client, settings.listen_model),
+        look=GeminiLookProvider(client, settings.listen_model),
     )
 
 
@@ -83,4 +116,5 @@ def build_fake_providers(settings: Settings) -> Providers:
         tts=FakeTTS(),
         client=None,
         video_client=None,
+        listen=FakeListen(),
     )

@@ -85,6 +85,12 @@ def test_job_runs_to_done_and_serves_mp4(jobs):
     assert video.headers["content-type"] == "video/mp4"
     assert len(video.content) > 1000
 
+    assert status["subtitles_url"] == f"/video/jobs/{job_id}/subtitles"
+    subs = client.get(status["subtitles_url"])
+    assert subs.status_code == 200
+    assert subs.headers["content-type"].startswith("text/vtt")
+    assert subs.text.startswith("WEBVTT") and "-->" in subs.text
+
 
 @needs_ffmpeg
 def test_budget_exceeded_fails_without_rendering(tmp_path, monkeypatch):
