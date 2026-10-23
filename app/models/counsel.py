@@ -1,4 +1,5 @@
 import math
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -79,7 +80,28 @@ def _clean_slots(value: dict[str, str | None] | None) -> dict[str, str] | None:
             cleaned[key[:20]] = text[:_SLOT_MAX_CHARS]
     return cleaned or None
 
+class CbtTurnInput(BaseModel):
+    """CBT 단계형 상담 상태. 앱은 직전 응답 `cbt`의 stage·stage_turn을 다음 요청에 넣는다."""
 
+    stage: int = Field(0, ge=0, le=5, description="0 지난 미션 확인 ~ 5 행동 가이드")
+    stage_turn: int = Field(0, ge=0, description="지금 단계에서 지난 턴 수")
+    style: Literal["empathy", "analysis", "goal"] = Field(
+        "empathy", description="상담 스타일: 공감형 / 분석형 / 목표형"
+    )
+    last_mission: str | None = Field(
+        None, max_length=200, description="지난 회기에서 정한 미션. 없으면 0단계를 건너뛴다"
+    )
+
+
+class CbtTurnState(BaseModel):
+    stage: int = Field(..., description="다음 요청에 보낼 단계")
+    stage_turn: int = Field(0, description="다음 요청에 보낼 단계 내 턴 수")
+    extracted: dict[str, Any] = Field(
+        default_factory=dict, description="이번 턴에 얻은 값 — CounselSession에 병합 저장"
+    )
+    done: bool = Field(False, description="5단계까지 끝나 회기가 종료됨")
+    
+    
 class CounselMessage(BaseModel):
     speaker: str = Field(..., description="'user' 또는 'oddo'")
     text: str
@@ -121,6 +143,8 @@ class CounselTurnRequest(BaseModel):
     emotion_arc: str | None = Field(
         None, max_length=300, description="일기 속 감정 흐름 한 줄 (handoff)"
     )
+    # 있으면 CBT 단계형으로 진행한다(counsel_cbt.py). 없으면 기존 자유 대화.
+    cbt: CbtTurnInput | None = Field(None, description="CBT 단계형 상담 상태")
 
     @field_validator("slots")
     @classmethod
@@ -138,6 +162,8 @@ class CounselTurnResponse(BaseModel):
     # 지금 응답이 더미 맥락으로 만들어졌는지. 연동 확인용이라 앱 화면에는 쓰지 않는다.
     used_dummy_context: bool = False
 
+    # CBT 단계형 요청일 때만 채운다.
+    cbt: CbtTurnState | None = None
 
 class CounselReportRequest(BaseModel):
     """상담이 끝난 뒤 리포트를 만들기 위해 보내는 값."""

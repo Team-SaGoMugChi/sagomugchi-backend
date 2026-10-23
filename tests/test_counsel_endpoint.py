@@ -42,6 +42,8 @@ def test_counsel_turn_uses_real_analysis_context(monkeypatch):
         "crisis": False,
         "risk_axis": None,
         "used_dummy_context": False,
+        "cbt": None,
+
     }
     prompt = captured["system_prompt"]
     assert "내일 발표가 있어서 긴장된다고 적음" in prompt
