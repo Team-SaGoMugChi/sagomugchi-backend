@@ -49,6 +49,15 @@
 - **AI 의존은 CRISIS로 만들지 않는다.** 상담을 끊으면 오히려 고립감을 키운다. 상담봇이 사람 관계로 연결한다.
 - **방법·도구는 상담봇이 어떤 경우에도 구체적으로 말하지 않는다.**
 
+## LLM 2단계 판정 (선택)
+
+`.env`의 `COUNSEL_LLM_JUDGE=true`일 때 켜진다 (`app/services/counsel_risk_judge.py`).
+
+- 규칙이 CRISIS면 LLM을 부르지 않는다.
+- 규칙이 CAUTION·NONE이면 `COUNSEL_JUDGE_MODEL`(기본 gpt-4o-mini)이 한 번 더 판정한다.
+- LLM은 단계를 올리기만 한다. 실패·타임아웃·형식 오류면 규칙 결과를 쓴다.
+- 판정 프롬프트는 이 문서와 개발 세트만 보고 썼다. 검증 세트를 보고 프롬프트를 고치지 않는다.
+
 ## 성능 확인
 
 `python -X utf8 scripts/evaluate_counsel.py`로 잰다. 결과는 `docs/evaluations/`에 저장된다.
