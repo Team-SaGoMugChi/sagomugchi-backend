@@ -14,6 +14,9 @@ protagonist에 주인공을 정의한다. 일기에 나오는 다른 사람(친�
 나오거나 말하는 사람**은 supporting에 정의한다. 이름 없는 군중이나 말하지 않는 행인은 정의하지 않는다.
 - appearance는 영어로, 얼굴·머리·체형·**옷차림까지** 구체적으로 쓴다. 시스템이 이 서술로 인물마다
   캐릭터 시트를 만들어 모든 컷에서 같은 사람으로 그린다. 인물끼리 머리 모양·옷 색이 뚜렷이 달라야 한다.
+- 인물은 **한국 드라마 배우처럼 매력적으로** 그린다. appearance에 "an attractive Korean woman/man
+  in her/his late twenties, K-drama lead look"처럼 쓰고, 나이·직업에 어울리는 세련된 평상복을 고른다.
+  실존 연예인 이름을 쓰거나 닮게 하지 않는다.
 - **appearance와 voice 모두에 성별을 영어로 분명히 쓴다**(man / woman, 아이면 boy / girl).
   "young adult", "person", "they"처럼 성별을 흐리지 않는다. 흐리면 그림의 성별과 목소리가 어긋난다.
   일기에서 알 수 없으면 하나를 골라 appearance와 voice에 같게 쓴다.
@@ -54,7 +57,9 @@ locations에 이 이야기에 나오는 장소를 하나씩 정의하고, 컷마
 - 같은 곳(예: 하루 종일 있었던 강의실)은 하나로 정의하고 여러 컷이 같은 name을 쓴다.
 - description은 영어로, 그림만 보고 같은 곳으로 알아볼 수 있게 구체적으로 쓴다. 바닥·주요 색·
   조명 기구와 함께 **네 방향에 각각 무엇이 있는지** 쓴다(입구에서 들어와 바라본 기준).
-  형식: "Entrance side: ... Far side: ... Left side: ... Right side: ..." 시간대·빛·인물은 쓰지 않는다.
+  맨 앞의 Everywhere에는 **어느 방향에서 찍어도 보이는 공통 표지물**(벽·바닥 색과 재질, 천장 조명 모양)을 쓴다.
+  컷마다 다른 벽을 비춰도 이것이 같아야 같은 곳으로 보인다.
+  형식: "Everywhere: ... Entrance side: ... Far side: ... Left side: ... Right side: ..." 시간대·빛·인물은 쓰지 않는다.
   시스템이 이 서술로 장소를 네 방향에서 본 장소 시트를 만든다.
 - **인물이 앉거나 머무는 자리**(테이블·벤치·카운터 자리 등)는 모양·재질·크기와 장소 안 위치까지
   description에 넣는다. 예: "Left side: tall windows; by the second window, a small round light-wood

@@ -26,9 +26,9 @@ _POV_PATTERNS = [
     (r"through (his|her|their) eyes", "시점 샷 금지 (원칙 1)"),
     (r"looking (down )?at (his|her|their) own", "자기 신체 시점 금지 (원칙 1)"),
 ]
-# 카메라를 사람 뒤에 두는 구도. "over-the-shoulder"라고 쓰지 않아도
-# "past the silhouettes of colleagues in the foreground" 식으로 우회한다.
-# 관찰자가 무리 안으로 들어가 버려서 거리가 무너진다.
+# 카메라를 사람 뒤에 두는 구도(어깨너머 샷). 2026-10 사용자 결정으로 허용한다 — 드라마의
+# 대화 장면처럼 컷 전환이 자연스러워지고, 카메라는 여전히 3인칭이다. 거리두기는 얼굴 클로즈업
+# 금지(_CLOSEUP_PATTERNS)와 1인칭 시점 금지(_POV_PATTERNS)로 지킨다. 아래 목록은 기록으로 남기고 쓰지 않는다.
 _OVER_SHOULDER_PATTERNS = [
     (r"over[- ]the[- ]shoulder|over[- ]shoulder", "오버숄더 구도 금지 (원칙 1·2)"),
     (
@@ -107,7 +107,6 @@ def _scan(text: str, patterns: list[tuple[str, str]], field: str) -> list[Violat
 def lint_image_prompt(prompt: str) -> list[Violation]:
     return (
         _scan(prompt, _POV_PATTERNS, "image_prompt")
-        + _scan(prompt, _OVER_SHOULDER_PATTERNS, "image_prompt")
         + _scan(prompt, _CLOSEUP_PATTERNS, "image_prompt")
         + _scan(prompt, _EXAGGERATION_PATTERNS, "image_prompt")
     )

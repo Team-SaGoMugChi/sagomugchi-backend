@@ -147,8 +147,18 @@ class SeenFrame(BaseModel):
 
     people: list[SeenPerson]
     looks_at_camera: bool
+    # 장소 확인(PlaceCheck를 줬을 때만): 장소 시트와 같은 곳인가, 카메라가 어느 쪽을 보나.
+    same_place: bool | None = None
+    facing: str = ""  # "entrance" / "far" / "left" / "right" / ""(모름)
+
+
+class PlaceCheck(BaseModel):
+    """컷 그림을 그 장소의 시트·묘사와 비교한다(같은 곳인가, 어느 벽을 보나)."""
+
+    sheet: Path
+    description: str
 
 
 @runtime_checkable
 class LookProvider(Protocol):
-    async def look(self, *, image: Path) -> SeenFrame: ...
+    async def look(self, *, image: Path, place: PlaceCheck | None = None) -> SeenFrame: ...
