@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     # 실제 사용자에게 예시 감정·주제가 섞이지 않도록 기본은 false다. UI 흐름만
     # 개발할 때 COUNSEL_DUMMY_CONTEXT=true를 명시해 켠다.
     counsel_dummy_context: bool = False
+    # 위기 판정 2단계(app/services/counsel_risk_judge.py). 규칙이 CRISIS가 아니라고 본
+    # 발화만 LLM이 한 번 더 본다. 켜면 상담 한 턴에 짧은 LLM 호출이 하나 늘어난다.
+    counsel_llm_judge: bool = False
+    counsel_judge_model: str = "gpt-4o"
+    counsel_judge_timeout_sec: float = Field(default=5.0, gt=0)
 
     # Naver CLOVA Speech(STT). 도메인 하나에 Invoke URL과 Secret Key 두 값이 나오므로
     # 기존 naver_clova_api_key 한 칸으로는 담을 수 없어 둘로 나눴다.
