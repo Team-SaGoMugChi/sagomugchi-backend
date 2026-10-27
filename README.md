@@ -258,3 +258,14 @@ Step3 화면의 진행률·재생을 확인할 때 쓴다. `ffmpeg`는 필요하
 감정분류 기본 모델은 KOTE이며 출력은 팀 공통 6종을 유지합니다.
 설치: python -m pip install -r requirements-kote.txt
 연동 API, 6종 대응표, 라이선스와 검증 절차: [KOTE 연동 문서](docs/KOTE.md).
+
+
+### Persona CLOVA Voice (2026-10-22, #85)
+
+`POST /tts` accepts `{text, speaker}` and returns `{audio_base64, mime_type}`.
+Four allowed speakers: `nara`, `njinho`, `nminyoung`, `ndonghyun`.
+Set `CLOVA_VOICE_CLIENT_ID` and `CLOVA_VOICE_CLIENT_SECRET` on the server only
+(CLOVA Speech STT credentials are separate). No synthesized audio or text is persisted.
+Missing configuration returns 503; provider failure returns 502; invalid input returns 422.
+The mobile app falls back to its device voice on unavailable synthesis.
+Deploy this endpoint alongside the frontend onboarding update before checking real voices.
