@@ -61,7 +61,8 @@ def test_dummy_mode_needs_no_gcp_project(tmp_path):
 
 @pytest.mark.parametrize("n_cuts", [1, 3])
 def test_dummy_pipeline_produces_final_mp4(tmp_path, n_cuts):
-    settings = _settings(tmp_path, n_cuts=n_cuts)
+    # 컷 길이 그대로 이어 붙이는 경우(정적 자르기 끔). 자르는 경우는 test_videomake_edit.py.
+    settings = _settings(tmp_path, n_cuts=n_cuts).model_copy(update={"tight_edit": False})
     pipe = Pipeline(
         providers=build_providers(settings),
         job=JobStore(settings.jobs_dir, "dummy-job"),

@@ -303,7 +303,7 @@ def test_wrong_cut_image_is_redrawn_with_the_problem(tmp_path, monkeypatch):
         def __init__(self):
             self.n = 0
 
-        async def look(self, *, image):
+        async def look(self, *, image, place=None):
             self.n += 1  # 첫 그림만 카메라를 본다
             return SeenFrame(people=[SeenPerson(gender="", height_ratio=0.6)] * 2, looks_at_camera=self.n == 1)
 

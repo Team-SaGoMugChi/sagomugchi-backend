@@ -112,7 +112,8 @@ def _probe(path):
 @needs_ffmpeg
 def test_pipeline_with_silent_and_dialogue_cuts_makes_one_crossfaded_video(tmp_path, monkeypatch):
     monkeypatch.setattr(fake, "STEP_DELAY_SECONDS", 0)
-    settings = Settings(_env_file=None, jobs_dir=tmp_path / "jobs", poll_interval_seconds=0.0)
+    # 컷 길이 그대로 겹쳐 잇는 구조를 본다(정적 자르기는 test_videomake_edit.py).
+    settings = Settings(_env_file=None, jobs_dir=tmp_path / "jobs", poll_interval_seconds=0.0, tight_edit=False)
     base = build_fake_providers(settings)
     llm = fake.FakeLLM(4)
     llm.payload = _payload([(4, "n"), (4, "s"), (6, "d"), (4, "n")])

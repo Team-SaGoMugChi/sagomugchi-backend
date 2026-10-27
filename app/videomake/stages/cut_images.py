@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from pathlib import Path
 
@@ -19,7 +20,7 @@ from ..config import Settings
 from ..job import JobStore
 from ..models import Cut, Stage, Storyboard
 from ..prompts import PromptLibrary
-from ..providers.base import ImageProvider, LookProvider, SeenFrame
+from ..providers.base import ImageProvider, LookProvider, PlaceCheck, SeenFrame
 
 log = logging.getLogger(__name__)
 
@@ -54,7 +55,24 @@ def image_problems(sb: Storyboard, cut: Cut, seen: SeenFrame) -> list[str]:
         problems.append("This must be a MEDIUM shot cropped at the waist: legs and feet must not be visible, and the person must fill most of the frame height.")
     if seen.looks_at_camera:
         problems.append("Someone looks into the camera. Nobody may look at the camera.")
+    # 장소: 시트와 다른 곳처럼 그렸거나, 지시와 다른 벽을 보고 있으면 다시 그린다(2026-10 빵집 컷 관측).
+    if seen.same_place is False:
+        problems.append("This does not look like the same place as the location reference sheet. Keep its wall "
+                        "and floor colors and materials, ceiling lights and furniture exactly the same.")
+    want_side = planned_side(cut)
+    if want_side and seen.facing and seen.facing != want_side:
+        problems.append(f"The camera must face the {want_side} side of the place as written in SCENE, "
+                        f"not the {seen.facing} side.")
     return problems
+
+
+_SIDE = re.compile(r"camera faces the (entrance|far|left|right) side", re.IGNORECASE)
+
+
+def planned_side(cut: Cut) -> str:
+    """image_prompt 첫머리의 "Camera faces the left side ..."에서 방향을 읽는다. 없으면 ""."""
+    m = _SIDE.search(cut.image_prompt)
+    return m.group(1).lower() if m else ""
 
 
 async def generate_cut_images(
@@ -83,6 +101,9 @@ async def generate_cut_images(
         if dest.exists() and not force:
             log.info("컷 %d 이미지 캐시 재사용", cut.index)
             return cut.index, dest
+        loc = sb.location(cut.location)
+        place_sheet = location_sheets.get(cut.location) if cut.location else None
+        place = PlaceCheck(sheet=place_sheet, description=loc.description) if loc and place_sheet else None
         moment = moment_shot(sb, cut)
         moment_image = job.cut_image(moment) if moment else None
         prompt, references = cut_image_request(
@@ -113,7 +134,7 @@ async def generate_cut_images(
             if look is None:
                 break
             try:
-                seen = await look.look(image=dest)
+                seen = await look.look(image=dest, place=place)
             except Exception as exc:
                 log.warning("컷 %d 그림 확인 실패 — 그대로 쓴다: %s", cut.index, exc)
                 break

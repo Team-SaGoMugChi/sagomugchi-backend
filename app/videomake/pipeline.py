@@ -22,6 +22,7 @@ from .stages.character_sheet import build_character_sheet
 from .stages.compose import compose
 from .stages.cut_images import generate_cut_images
 from .stages.dialogue_voice import dub_dialogue
+from .stages.edit_plan import load_plan, make_music, plan_edit
 from .stages.film_team import plan_with_team
 from .stages.narration import synthesize_narrations
 from .stages.reference_sheets import build_reference_sheets
@@ -148,6 +149,7 @@ class Pipeline:
             job=self.job,
             only=only,
             force=force,
+            look=self.p.look,
         )
 
     async def narrate(
@@ -155,7 +157,7 @@ class Pipeline:
     ) -> dict[int, Path]:
         return await synthesize_narrations(
             sb,
-            tts=self.p.tts,
+            tts=self.p.narration_tts or self.p.tts,
             prompts=self.prompts,
             settings=self.settings,
             job=self.job,
@@ -205,8 +207,10 @@ class Pipeline:
         except BaseException:
             thumbnail.cancel()
             raise
-        await asyncio.gather(self.narrate(sb, force=force), self.dub(sb, force=force))
-        final = self.compose(sb)
+        _, _, music = await asyncio.gather(
+            self.narrate(sb, force=force), self.dub(sb, force=force), self.edit(sb, force=force)
+        )
+        final = self.compose(sb, music=music)
         try:
             await thumbnail
         except Exception:
@@ -234,7 +238,19 @@ class Pipeline:
             force=force,
         )
 
-    def compose(self, sb: Storyboard, narrations: dict[int, Path] | None = None) -> Path:
+    async def edit(self, sb: Storyboard, *, force: bool = False) -> dict[int, Path]:
+        """편집 계획(끝까지 보여줄 컷·배경음악 구간)을 정하고 음악을 만든다(stages/edit_plan.py)."""
+        plan = await plan_edit(
+            sb, llm=self.p.llm, prompts=self.prompts, settings=self.settings, job=self.job, force=force
+        )
+        return await make_music(plan, music=self.p.music, job=self.job, force=force)
+
+    def compose(
+        self,
+        sb: Storyboard,
+        narrations: dict[int, Path] | None = None,
+        music: dict[int, Path] | None = None,
+    ) -> Path:
         if narrations is None:
             narrations = {
                 c.index: self.job.cut_narration(c.index)
@@ -246,6 +262,13 @@ class Pipeline:
             for c in sb.cuts
             if c.is_dialogue and self.job.cut_dialogue(c.index).exists()
         }
+        plan = load_plan(self.job)
+        if music is None and plan is not None:
+            music = {
+                k: p for k in range(len(plan.music))
+                if (p := self.job.dir / "music" / f"cue{k}.wav").exists()
+            }
         return compose(
-            sb, job=self.job, settings=self.settings, narrations=narrations, dialogues=dialogues
+            sb, job=self.job, settings=self.settings, narrations=narrations, dialogues=dialogues,
+            plan=plan.checked(sb) if plan else None, music=music,
         )

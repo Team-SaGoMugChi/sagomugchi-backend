@@ -178,6 +178,19 @@ class FakeTTS:
         return AudioResult(path=str(dest), duration_s=self.seconds)
 
 
+class FakeMusic:
+    """조용한 사인파 30초. 과금 0."""
+
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    async def generate(self, *, prompt: str, dest: Path) -> AudioResult:
+        self.prompts.append(prompt)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        _ff(["-f", "lavfi", "-i", "sine=frequency=220:duration=30:sample_rate=48000", "-ac", "2", str(dest)])
+        return AudioResult(path=str(dest), duration_s=30.0)
+
+
 class FakeListen:
     """대사 듣기 가짜. heard에 컷 소리 파일 → 결과를 넣어 두거나, 기본값(말소리 없음)을 돌려준다."""
 

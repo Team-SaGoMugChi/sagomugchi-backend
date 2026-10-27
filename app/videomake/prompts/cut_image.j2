@@ -45,20 +45,25 @@ the sky outside the windows is dark and the lamps are on, even if the sheet show
 Show the side of the place that SCENE says the camera faces, from the camera position in SCENE.
 Do NOT copy the viewpoint or composition of any panel of the location sheet.
 {% endif -%}
+SAME PLACE IN EVERY SHOT: keep this place's constant features exactly (wall and floor colors and
+materials, the ceiling lights, the style of the furniture){% if camera_distance == 'medium' %} in the background behind the people.
+This does not widen the shot: it stays a waist-up MEDIUM shot{% else %}, and let a piece of a neighboring
+side show at the edge of the frame{% endif %}, so the viewer recognizes it as the same room as the other shots.
 {% endif %}
 FRAMING:
 Third-person observational {{ camera_distance }} shot. The camera is a detached
 outside observer and never takes the character's point of view.
 {% if camera_distance != 'medium' or thumbnail -%}
 Keep clear physical distance from the character. {% endif -%}
-No close-up of the face, no extreme close-up, no POV, no over-shoulder subjective framing.
+No close-up of a face filling the frame, no extreme close-up, no POV (first-person view).
+An over-the-shoulder shot from behind another person is fine.
 {% if thumbnail -%}
 This frame is a thumbnail shown on a small card. Recompose the SCENE for a landscape frame:
 the character(s) are the clear subject and fill about half of the frame height or more,
 with only enough surroundings to recognize the place. Their face and expression must be readable.
 Still no close-up of a face filling the frame.
 {% elif camera_distance == 'medium' -%}
-MEDIUM SHOT: the frame is cropped at about the waist (or at the table top when seated).
+MEDIUM SHOT (about a 50mm lens, close to the people): the frame is cropped at about the waist (or at the table top when seated).
 Legs and feet are NOT visible. The people fill a good part of the frame,
 so their faces and expressions are easy to read. Still no close-up of a face filling the frame.
 {% else -%}

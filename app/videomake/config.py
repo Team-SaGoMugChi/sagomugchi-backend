@@ -24,7 +24,7 @@ CutSeconds = Literal[4, 6, 8]
 # 나레이션 낭독 속도(초당 글자 수, 공백 포함). "보통 대화 속도" 낭독 지시로 목소리 6종을
 # 재보니 초당 5.0~6.1자였다(2026-10). 가장 느린 값을 써서 어떤 목소리도 컷 안에 끝나게 한다.
 NARRATION_CHARS_PER_SECOND = 5
-# 컷 시작 0.4초 뒤에 목소리가 들어오고(compose.NARRATION_DELAY_MS) 끝에 숨 쉴 틈을 남긴다.
+# 컷 시작 뒤 목소리가 들어오기까지(settings.narration_delay_ms)와 끝에 숨 쉴 틈을 남긴다.
 NARRATION_MARGIN_SECONDS = 0.8
 
 # 컷과 컷 사이를 겹쳐 넘기는 시간(초). 짧은 컷이 툭툭 끊겨 보이지 않게 한다.
@@ -107,9 +107,9 @@ class Settings(BaseSettings):
     image_model: str = "gemini-3.1-flash-image"
     video_model: str = "veo-3.1-fast-generate-preview"
     tts_model: str = "gemini-3.1-flash-tts-preview"
-    # 나레이션 목소리. 2026-10 목소리 6종 비교에서 Leda(여, 젊고 밝음)로 정했다.
-    # 이전 Charon(남, 낮고 차분)은 영상 분위기를 무겁게 만들었다.
-    tts_voice: str = "Leda"
+    # Gemini 나레이션 목소리(Fish를 못 쓸 때). 2026-10 스타일 9종 비교에서 Autonoe(일상 브이로그 말투)로 정했다.
+    # 이전 Leda는 느리고 우울하게 들린다는 평가였다.
+    tts_voice: str = "Autonoe"
 
     # --- 렌더 설정 ---------------------------------------------------------
     aspect_ratio: Literal["9:16", "16:9"] = "9:16"
@@ -154,6 +154,34 @@ class Settings(BaseSettings):
     veo_ambient_gain_db: float = -36.0  # 나레이션 아래
     veo_ambient_solo_gain_db: float = -28.0  # 목소리 없는 컷
     fade_seconds: float = 0.4
+
+    # --- 나레이션 목소리 ----------------------------------------------------
+    # "fish"(기본)는 Fish Audio의 한국어 쇼츠 목소리로 읽는다 — 사람들이 실제로 쓰는 말투라
+    # Gemini보다 덜 딱딱하고 약 30% 빠르다(2026-10 비교). 키가 없거나 실패하면 Gemini(tts_voice)로 읽는다.
+    # 대사 더빙은 인물별 목소리가 필요해서 계속 Gemini TTS를 쓴다.
+    narration_tts: Literal["fish", "gemini"] = "fish"
+    fish_api_key: str = Field(default="", validation_alias=AliasChoices("FISH_API_KEY", "VIDEOMAKE_FISH_API_KEY"))
+    # s2.1-pro-free는 무료(2026-11-30까지 안내, 보장 없음). 유료는 s2.1-pro($15 / 100만 바이트, 한 편 약 1센트).
+    fish_model: str = "s2.1-pro-free"
+    # Fish 공개 목소리 "20대 여자_나긋나긋 쇼츠"(한국어 사용 6만 회, 2026-10). 연예인 복제 목소리는 쓰지 않는다.
+    fish_voice_id: str = "4e118bfbb83e401c84699c09b5f08257"
+    fish_speed: float = 1.0
+
+    # --- 편집 ---------------------------------------------------------------
+    # 목소리가 끝난 뒤 남는 정적을 잘라 컷을 줄인다(쇼츠 편집 관행: 0.3~0.5초 넘는 공백은 자른다).
+    # 무음 컷(화면만 보여주는 동작)과 편집 계획이 "끝까지 보여줄 동작"으로 고른 컷은 자르지 않는다.
+    tight_edit: bool = True
+    # 목소리가 끝난 뒤 남기는 여유. 0.35초는 다급하게 느껴졌고 1.1초로 정했다(2026-10 사용자 비교).
+    edit_tail_seconds: float = 1.1
+    edit_min_cut_seconds: float = 2.2
+    narration_delay_ms: int = 300  # 컷이 시작하고 목소리가 들어오기까지
+
+    # --- 배경음악 ------------------------------------------------------------
+    # 편집 계획(LLM)이 분위기상 필요하다고 본 구간에만 깐다. 대부분의 영상은 음악 없이
+    # 목소리와 장면 소리만 둔다. 깔 때는 목소리 아래에서 작게 들리게 한다.
+    music: bool = True
+    music_model: str = "lyria-002"
+    music_level_db: float = -34.0  # 음악 크기(dBFS RMS). 나레이션은 약 -15dB
 
     # --- 비용 가드 ---------------------------------------------------------
     max_cost_usd: Decimal = Decimal("6.00")

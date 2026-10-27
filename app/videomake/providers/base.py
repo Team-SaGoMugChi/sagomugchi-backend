@@ -117,6 +117,13 @@ class TTSProvider(Protocol):
     ) -> AudioResult: ...
 
 
+@runtime_checkable
+class MusicProvider(Protocol):
+    """배경음악 한 곡(약 30초, 보컬 없음)."""
+
+    async def generate(self, *, prompt: str, dest: Path) -> AudioResult: ...
+
+
 class HeardSpeech(BaseModel):
     """대사 컷 소리를 들어 본 결과 — 무슨 말을 했나, 어떤 목소리였나."""
 
@@ -140,8 +147,44 @@ class SeenFrame(BaseModel):
 
     people: list[SeenPerson]
     looks_at_camera: bool
+    # 장소 확인(PlaceCheck를 줬을 때만): 장소 시트와 같은 곳인가, 카메라가 어느 쪽을 보나.
+    same_place: bool | None = None
+    facing: str = ""  # "entrance" / "far" / "left" / "right" / ""(모름)
+    # 인물 확인(CastCheck를 줬을 때만): 같은 사람이 둘로 나왔나, 명단에 없는 사람이 있나.
+    duplicate_person: bool | None = None
+    unknown_person: bool | None = None
+
+
+class PlaceCheck(BaseModel):
+    """컷 그림을 그 장소의 시트·묘사와 비교한다(같은 곳인가, 어느 벽을 보나)."""
+
+    sheet: Path
+    description: str
+
+
+class TimedFrame(BaseModel):
+    """영상에서 뽑은 프레임 한 장과 그 시각·샷 번호."""
+
+    time: float
+    shot: int
+    image: Path
+
+
+@runtime_checkable
+class ContinuityProvider(Protocol):
+    """시간 순서의 프레임들을 보고 샷 사이 연결 오류(물건이 사라짐·손을 바꿈·되돌린 동작·없던 가구)를 찾는다."""
+
+    async def continuity(self, *, frames: Sequence[TimedFrame], scene: str) -> list[str]: ...
+
+
+class CastCheck(BaseModel):
+    """그 장면에 있어야 할 사람들(짧은 외모 묘사). 영상 프레임에서 복제·낯선 사람을 찾는다."""
+
+    people: list[str]
 
 
 @runtime_checkable
 class LookProvider(Protocol):
-    async def look(self, *, image: Path) -> SeenFrame: ...
+    async def look(
+        self, *, image: Path, place: PlaceCheck | None = None, cast: CastCheck | None = None
+    ) -> SeenFrame: ...

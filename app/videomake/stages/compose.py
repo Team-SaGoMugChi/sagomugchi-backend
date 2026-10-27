@@ -25,12 +25,17 @@ import numpy as np
 from ..config import CROSSFADE_SECONDS, Settings
 from ..errors import VideomakeError
 from ..job import JobStore
-from ..models import Stage, Storyboard
+from ..models import Cut, EditPlan, Stage, Storyboard
+from .dialogue_voice import _load_mono, speech_segments
 from .subtitles import write_subtitles
 
 log = logging.getLogger(__name__)
 
-NARRATION_DELAY_MS = 400  # 컷이 시작하고 잠깐 뒤에 목소리가 들어오는 편이 자연스럽다
+NARRATION_DELAY_MS = 400  # tight_edit=False일 때. 켜져 있으면 settings.narration_delay_ms
+# 샷을 나눈 컷을 줄일 때, 이미 시작한 샷은 이만큼은 보여준다(너무 짧으면 화면이 번쩍인다).
+LAST_SHOT_MIN_SECONDS = 1.5
+MUSIC_FADE_IN = 1.0
+MUSIC_FADE_OUT = 1.8
 AUDIO_RATE = 48_000
 FPS = 24
 
@@ -66,7 +71,7 @@ def cut_starts(seconds: list[int], crossfade: float = CROSSFADE_SECONDS) -> list
     return starts
 
 
-def _prepare_video(src: Path, dest: Path, *, seconds: int, size: tuple[int, int]) -> None:
+def _prepare_video(src: Path, dest: Path, *, seconds: float, size: tuple[int, int]) -> None:
     """xfade는 크기·프레임·픽셀 형식이 같아야 한다. 컷마다 같은 규격으로 맞추고 소리는 뺀다."""
     w, h = size
     _run([
@@ -76,7 +81,7 @@ def _prepare_video(src: Path, dest: Path, *, seconds: int, size: tuple[int, int]
     ])
 
 
-def _extract_audio(src: Path, dest: Path, *, seconds: int) -> bool:
+def _extract_audio(src: Path, dest: Path, *, seconds: float) -> bool:
     """Veo 오디오를 따로 꺼낸다. 오디오가 없는 영상이면 False."""
     proc = subprocess.run(
         [
@@ -101,6 +106,77 @@ def _level_gain(path: Path, target_db: float, max_gain_db: float = 20.0) -> floa
     return min(target_db - level, max_gain_db)
 
 
+def _wav_seconds(path: Path) -> float:
+    with wave.open(str(path), "rb") as wf:
+        return wf.getnframes() / wf.getframerate()
+
+
+def edit_lengths(
+    sb: Storyboard,
+    *,
+    settings: Settings,
+    narrations: dict[int, Path],
+    voice_of: dict[int, Path],
+    hold: set[int],
+    delay: float,
+) -> list[float]:
+    """컷마다 최종 영상에서 쓸 길이(초). 목소리가 끝난 뒤의 정적을 잘라낸다(쇼츠 편집).
+
+    자르지 않는 컷: 무음 컷(화면만 보여주는 동작), 편집 계획이 고른 hold 컷, 나레이션이
+    이 컷보다 길어 뒤 컷까지 이어지는 컷. 샷을 나눈 컷은 목소리가 끝날 때 시작한 샷까지만 남긴다.
+    voice_of: 대사 컷마다 실제로 나가는 소리(더빙 파일 또는 영상).
+    """
+    lengths: list[float] = []
+    for cut in sb.cuts:
+        full = float(cut.duration_seconds)
+        need = _voice_end(cut, narrations, voice_of, delay)
+        if not settings.tight_edit or need is None or cut.index in hold:
+            lengths.append(full)
+            continue
+        end = need + settings.edit_tail_seconds
+        floor = settings.edit_min_cut_seconds
+        # 샷을 나눈 컷: 목소리가 끝날 때 이미 시작한 샷은 잠깐은 보여 주고(번쩍임 방지),
+        # 아직 시작하지 않은 샷은 버린다 — 샷을 보여주려고 정적을 남기지 않는다.
+        at = 0.0
+        for shot in cut.shots:
+            if at < end and end - at < LAST_SHOT_MIN_SECONDS:
+                floor = max(floor, at + LAST_SHOT_MIN_SECONDS)
+            at += shot.seconds
+        lengths.append(round(min(full, max(floor, end)), 3))
+    return lengths
+
+
+def _voice_end(cut: Cut, narrations: dict[int, Path], voice_of: dict[int, Path], delay: float) -> float | None:
+    """컷 시작부터 목소리가 끝나는 시각. 목소리가 없는 컷(무음 컷)은 None — 자르지 않는다."""
+    if cut.narration and cut.index in narrations:
+        return delay + _wav_seconds(narrations[cut.index])
+    if cut.dialogue and cut.index in voice_of:
+        segments = speech_segments(_load_mono(voice_of[cut.index], cut.duration_seconds))
+        return segments[-1][1] if segments else None
+    return None
+
+
+def _music_track(src: Path, dest: Path, *, seconds: float) -> None:
+    """곡을 구간 길이에 맞춘다. 짧으면 같은 곡을 3초 겹쳐 이어 붙이고, 앞뒤를 부드럽게 넣고 뺀다."""
+    with wave.open(str(src), "rb") as wf:
+        song = wf.getnframes() / wf.getframerate()
+    loops = max(0, int(np.ceil((seconds - song) / max(song - 3.0, 1.0))))
+    inputs: list[str] = []
+    for _ in range(loops + 1):
+        inputs += ["-i", str(src)]
+    chain, prev = [], "0:a"
+    for k in range(1, loops + 1):
+        chain.append(f"[{prev}][{k}:a]acrossfade=d=3[x{k}]")
+        prev = f"x{k}"
+    out_fade = max(seconds - MUSIC_FADE_OUT, 0)
+    chain.append(
+        f"[{prev}]atrim=0:{seconds},afade=t=in:st=0:d={MUSIC_FADE_IN},"
+        f"afade=t=out:st={out_fade}:d={MUSIC_FADE_OUT},aresample={AUDIO_RATE},"
+        "aformat=channel_layouts=stereo[m]"
+    )
+    _run([_ffmpeg(), "-y", *inputs, "-filter_complex", ";".join(chain), "-map", "[m]", str(dest)])
+
+
 def compose(
     sb: Storyboard,
     *,
@@ -108,15 +184,26 @@ def compose(
     settings: Settings,
     narrations: dict[int, Path] | None = None,
     dialogues: dict[int, Path] | None = None,
+    plan: EditPlan | None = None,
+    music: dict[int, Path] | None = None,
 ) -> Path:
     started = time.perf_counter()
     work = job.dir / "compose"
     work.mkdir(exist_ok=True)
     narrations = narrations or {}
     dialogues = dialogues or {}
+    plan = plan or EditPlan()
+    music = music or {}
     size = _FRAME_SIZES.get((settings.aspect_ratio, settings.video_resolution), (720, 1280))
+    delay_ms = settings.narration_delay_ms if settings.tight_edit else NARRATION_DELAY_MS
 
-    seconds = [c.duration_seconds for c in sb.cuts]
+    voice_of = {
+        c.index: dialogues.get(c.index) or job.cut_video(c.index) for c in sb.cuts if c.is_dialogue
+    }
+    seconds = edit_lengths(
+        sb, settings=settings, narrations=narrations, voice_of=voice_of,
+        hold=set(plan.hold_cuts), delay=delay_ms / 1000,
+    )
     starts = cut_starts(seconds)
     total = round(starts[-1] + seconds[-1], 3) if seconds else 0.0
     x = CROSSFADE_SECONDS
@@ -135,12 +222,12 @@ def compose(
     voices: dict[int, Path] = {}  # 대사 컷마다 실제로 나가는 소리(자막 시각용)
     # (파일, 시작 시각 ms, 볼륨 dB)
     audios: list[tuple[Path, int, float]] = []
-    for cut, start in zip(sb.cuts, starts):
+    for cut, start, length in zip(sb.cuts, starts, seconds):
         src = job.cut_video(cut.index)
         if not src.exists():
             raise VideomakeError(f"컷 {cut.index}의 영상이 없다: {src}")
         video = work / f"{cut.index:02d}.mp4"
-        _prepare_video(src, video, seconds=cut.duration_seconds, size=size)
+        _prepare_video(src, video, seconds=length, size=size)
         videos.append(video)
 
         start_ms = int(start * 1000)
@@ -150,7 +237,7 @@ def compose(
             voices[cut.index] = dubbed
         elif cut.is_dialogue or settings.veo_audio == "ambient":
             voice = work / f"{cut.index:02d}_veo.wav"
-            if _extract_audio(src, voice, seconds=cut.duration_seconds):
+            if _extract_audio(src, voice, seconds=length):
                 if cut.is_dialogue:
                     gain = 0.0
                     voices[cut.index] = voice
@@ -164,8 +251,20 @@ def compose(
                 audios.append((voice, start_ms, gain))
         narration = narrations.get(cut.index)
         if narration is not None and not cut.is_dialogue:
-            audios.append((narration, start_ms + NARRATION_DELAY_MS, 0.0))
-        log.info("컷 %d 준비 완료 (%.1fs부터)", cut.index, start)
+            audios.append((narration, start_ms + delay_ms, 0.0))
+        log.info("컷 %d 준비 완료 (%.1fs부터, %.2fs)", cut.index, start, length)
+
+    # 배경음악: 편집 계획의 구간마다 한 곡을 작게 깐다.
+    positions = {c.index: pos for pos, c in enumerate(sb.cuts)}
+    for k, cue in enumerate(plan.music):
+        if k not in music:
+            continue
+        begin = starts[positions[cue.from_cut]]
+        end = min(starts[positions[cue.to_cut]] + seconds[positions[cue.to_cut]], total)
+        track = work / f"music{k}.wav"
+        _music_track(music[k], track, seconds=round(end - begin, 3))
+        audios.append((track, int(begin * 1000), _level_gain(track, settings.music_level_db)))
+        log.info("배경음악 %d: 컷 %d~%d (%.1f~%.1fs)", k, cue.from_cut, cue.to_cut, begin, end)
 
     args = [_ffmpeg(), "-y"]
     for video in videos:
@@ -227,7 +326,7 @@ def compose(
     _run(args)
     try:
         write_subtitles(sb, job, starts=starts, total=total, narrations=narrations, voices=voices,
-                        narration_delay=NARRATION_DELAY_MS / 1000)
+                        narration_delay=delay_ms / 1000, lengths=seconds)
     except Exception:  # 자막은 덧붙는 산출물이다. 실패해도 영상은 완성으로 둔다.
         log.exception("자막 만들기 실패 — 영상은 그대로 완성")
 
