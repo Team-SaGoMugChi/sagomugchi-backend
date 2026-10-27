@@ -26,15 +26,21 @@ def chat(
     temperature: float = 0.7,
     max_tokens: int = 300,
     json_mode: bool = False,
+    model: str | None = None,
+    timeout: float | None = None,
 ) -> str:
     """시스템 프롬프트 + 대화 기록 → 답변 한 턴.
 
     [json_mode] True면 모델이 JSON 객체만 출력하도록 강제한다(OpenAI JSON mode).
                 시스템 프롬프트에 'JSON'이라는 말이 들어 있어야 한다.
+    [model]     비우면 .env의 LLM_MODEL. 위기 판정처럼 다른 모델을 쓸 때만 넘긴다.
+    [timeout]   초 단위 요청 제한. 비우면 OpenAI 기본값.
     """
-    extra = {"response_format": {"type": "json_object"}} if json_mode else {}
+    extra: dict = {"response_format": {"type": "json_object"}} if json_mode else {}
+    if timeout is not None:
+        extra["timeout"] = timeout
     response = _client().chat.completions.create(
-        model=get_settings().llm_model,
+        model=model or get_settings().llm_model,
         temperature=temperature,
         max_tokens=max_tokens,
         messages=[{"role": "system", "content": system_prompt}, *messages],
