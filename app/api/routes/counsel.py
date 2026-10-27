@@ -1,5 +1,7 @@
 from fastapi import APIRouter
 
+from app.core.config import get_settings
+
 from app.models.counsel import (
     CbtTurnState,
     CounselReport,
@@ -12,6 +14,7 @@ from app.services import (
     counsel_context,
     counsel_output_check,
     counsel_report,
+    counsel_risk_judge,
     llm_client,
 )
 from app.services.counsel_guardrail import (
@@ -44,7 +47,12 @@ def _to_openai_messages(history: list) -> list[dict]:
 async def counsel_turn(payload: CounselTurnRequest) -> CounselTurnResponse:
     # 위험 축·단계 판정 (기준: docs/CRISIS_POLICY.md).
     # CRISIS는 LLM에 보내지 않고 축에 맞는 안내(연락처)로 응답한다.
-    risk = assess(payload.user_text)
+    # COUNSEL_LLM_JUDGE=true면 규칙이 놓친 바꿔 말하기를 LLM이 한 번 더 본다.
+    risk = (
+        counsel_risk_judge.assess_hybrid(payload.user_text)
+        if get_settings().counsel_llm_judge
+        else assess(payload.user_text)
+    )
     risk_axis = risk.axis.value if risk.axis else None
 
     # CBT 단계형이면 이번 턴의 단계를 정한다. 위기·오류 때는 단계를 그대로 돌려준다.
