@@ -37,6 +37,8 @@ FISH_PRICE_PER_MILLION_BYTES: dict[str, Decimal] = {
     "s2.1-pro": Decimal("15"),
     "s2-pro": Decimal("15"),
 }
+# 배경음악(Lyria 2) 30초 한 곡. Vertex 공개 단가.
+MUSIC_PRICE_PER_CLIP = Decimal("0.06")
 
 
 def fish_price(model: str, n_bytes: int) -> Decimal:

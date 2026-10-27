@@ -117,6 +117,13 @@ class TTSProvider(Protocol):
     ) -> AudioResult: ...
 
 
+@runtime_checkable
+class MusicProvider(Protocol):
+    """배경음악 한 곡(약 30초, 보컬 없음)."""
+
+    async def generate(self, *, prompt: str, dest: Path) -> AudioResult: ...
+
+
 class HeardSpeech(BaseModel):
     """대사 컷 소리를 들어 본 결과 — 무슨 말을 했나, 어떤 목소리였나."""
 

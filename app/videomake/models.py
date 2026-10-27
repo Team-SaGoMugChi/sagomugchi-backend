@@ -366,6 +366,41 @@ class ImageResult(BaseModel):
     elapsed_s: float = 0.0
 
 
+class MusicCue(BaseModel):
+    """배경음악 한 구간: from_cut 컷 시작부터 to_cut 컷 끝까지 한 곡을 작게 깐다."""
+
+    from_cut: int = Field(ge=1)
+    to_cut: int = Field(ge=1)
+    prompt: str = Field(description="음악 설명 (영어, 악기·분위기·빠르기)")
+
+
+class EditPlan(BaseModel):
+    """편집 계획(stages/edit_plan.py). 정적을 자를 때 남길 컷과 배경음악 구간."""
+
+    # 목소리가 끝난 뒤에도 끝까지 보여줘야 하는 동작이 있는 컷 — 줄이지 않는다.
+    hold_cuts: list[int] = Field(default_factory=list)
+    music: list[MusicCue] = Field(default_factory=list)
+    reason: str = ""
+
+    def checked(self, sb: Storyboard) -> EditPlan:
+        """스토리보드에 없는 컷·겹치는 음악 구간을 버린 사본. LLM 실수로 편집이 깨지지 않게 한다."""
+        indexes = [c.index for c in sb.cuts]
+        hold = sorted({i for i in self.hold_cuts if i in indexes})
+        music: list[MusicCue] = []
+        last_end = 0
+        for cue in sorted(self.music, key=lambda m: m.from_cut):
+            if cue.from_cut not in indexes or cue.to_cut not in indexes or cue.to_cut < cue.from_cut:
+                continue
+            if cue.from_cut <= last_end or len(music) >= MAX_MUSIC_CUES:
+                continue
+            music.append(cue)
+            last_end = cue.to_cut
+        return EditPlan(hold_cuts=hold, music=music, reason=self.reason)
+
+
+MAX_MUSIC_CUES = 2
+
+
 class AudioResult(BaseModel):
     path: str
     duration_s: float = 0.0

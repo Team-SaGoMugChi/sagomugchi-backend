@@ -18,10 +18,11 @@ from .base import (
     ListenProvider,
     LLMProvider,
     LookProvider,
+    MusicProvider,
     TTSProvider,
     VideoProvider,
 )
-from .fake import FakeImage, FakeListen, FakeLLM, FakeTTS, FakeVideo
+from .fake import FakeImage, FakeListen, FakeLLM, FakeMusic, FakeTTS, FakeVideo
 from .gemini_image import GeminiImageProvider
 from .gemini_listen import GeminiListenProvider
 from .gemini_look import GeminiLookProvider
@@ -73,6 +74,8 @@ class Providers:
     look: LookProvider | None = None
     # 나레이션 전용 목소리(Fish 등). 없으면 tts로 읽는다.
     narration_tts: TTSProvider | None = None
+    # 배경음악. 없으면 음악 없이 만든다.
+    music: MusicProvider | None = None
 
 
 def build_providers(settings: Settings) -> Providers:
@@ -104,6 +107,7 @@ def build_providers(settings: Settings) -> Providers:
         listen=GeminiListenProvider(client, settings.listen_model),
         look=GeminiLookProvider(client, settings.listen_model),
         narration_tts=build_narration_tts(settings, gemini_tts),
+        music=build_music(settings),
     )
 
 
@@ -123,6 +127,14 @@ def build_narration_tts(settings: Settings, gemini_tts: TTSProvider) -> TTSProvi
         speed=settings.fish_speed,
     )
     return FallbackTTS(fish, gemini_tts)
+
+
+def build_music(settings: Settings) -> MusicProvider | None:
+    if not settings.music:
+        return None
+    from .lyria_music import LyriaMusicProvider
+
+    return LyriaMusicProvider(project=settings.google_cloud_project, model=settings.music_model)
 
 
 def build_llm(settings: Settings, client: genai.Client) -> LLMProvider:
@@ -149,4 +161,5 @@ def build_fake_providers(settings: Settings) -> Providers:
         client=None,
         video_client=None,
         listen=FakeListen(),
+        music=FakeMusic() if settings.music else None,
     )
