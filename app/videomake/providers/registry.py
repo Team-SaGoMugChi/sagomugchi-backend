@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from google import genai
@@ -12,7 +13,14 @@ from openai import AsyncOpenAI
 
 from ..config import Settings
 from ..errors import ConfigError
-from .base import ImageProvider, ListenProvider, LLMProvider, LookProvider, TTSProvider, VideoProvider
+from .base import (
+    ImageProvider,
+    ListenProvider,
+    LLMProvider,
+    LookProvider,
+    TTSProvider,
+    VideoProvider,
+)
 from .fake import FakeImage, FakeListen, FakeLLM, FakeTTS, FakeVideo
 from .gemini_image import GeminiImageProvider
 from .gemini_listen import GeminiListenProvider
@@ -21,6 +29,8 @@ from .gemini_llm import GeminiLLMProvider
 from .gemini_tts import GeminiTTSProvider
 from .openai_llm import OpenAILLMProvider
 from .veo_video import VeoVideoProvider
+
+log = logging.getLogger(__name__)
 
 
 def build_video(settings: Settings, video_client: genai.Client, job_key: str = "job") -> VideoProvider:
@@ -61,6 +71,8 @@ class Providers:
     listen: ListenProvider | None = None
     # 컷 그림 검사. 없으면 검사하지 않는다(더미 모드).
     look: LookProvider | None = None
+    # 나레이션 전용 목소리(Fish 등). 없으면 tts로 읽는다.
+    narration_tts: TTSProvider | None = None
 
 
 def build_providers(settings: Settings) -> Providers:
@@ -81,16 +93,36 @@ def build_providers(settings: Settings) -> Providers:
         project=settings.google_cloud_project,
         location=settings.video_location,
     )
+    gemini_tts = GeminiTTSProvider(client, settings.tts_model)
     return Providers(
         llm=build_llm(settings, client),
         image=GeminiImageProvider(client, settings.image_model),
         video=build_video(settings, video_client),
-        tts=GeminiTTSProvider(client, settings.tts_model),
+        tts=gemini_tts,
         client=client,
         video_client=video_client,
         listen=GeminiListenProvider(client, settings.listen_model),
         look=GeminiLookProvider(client, settings.listen_model),
+        narration_tts=build_narration_tts(settings, gemini_tts),
     )
+
+
+def build_narration_tts(settings: Settings, gemini_tts: TTSProvider) -> TTSProvider | None:
+    """나레이션 목소리. Fish 키가 없으면(팀원 로컬 등) 기존 Gemini 목소리로 읽는다."""
+    if settings.narration_tts != "fish":
+        return None
+    if not settings.fish_api_key:
+        log.warning("VIDEOMAKE_NARRATION_TTS=fish인데 FISH_API_KEY가 없다 — 나레이션은 Gemini로 읽는다.")
+        return None
+    from .fish_tts import FallbackTTS, FishTTSProvider
+
+    fish = FishTTSProvider(
+        api_key=settings.fish_api_key,
+        model=settings.fish_model,
+        voice_id=settings.fish_voice_id,
+        speed=settings.fish_speed,
+    )
+    return FallbackTTS(fish, gemini_tts)
 
 
 def build_llm(settings: Settings, client: genai.Client) -> LLMProvider:

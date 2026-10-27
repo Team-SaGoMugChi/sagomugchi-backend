@@ -107,9 +107,9 @@ class Settings(BaseSettings):
     image_model: str = "gemini-3.1-flash-image"
     video_model: str = "veo-3.1-fast-generate-preview"
     tts_model: str = "gemini-3.1-flash-tts-preview"
-    # 나레이션 목소리. 2026-10 목소리 6종 비교에서 Leda(여, 젊고 밝음)로 정했다.
-    # 이전 Charon(남, 낮고 차분)은 영상 분위기를 무겁게 만들었다.
-    tts_voice: str = "Leda"
+    # Gemini 나레이션 목소리(Fish를 못 쓸 때). 2026-10 스타일 9종 비교에서 Autonoe(일상 브이로그 말투)로 정했다.
+    # 이전 Leda는 느리고 우울하게 들린다는 평가였다.
+    tts_voice: str = "Autonoe"
 
     # --- 렌더 설정 ---------------------------------------------------------
     aspect_ratio: Literal["9:16", "16:9"] = "9:16"
@@ -154,6 +154,18 @@ class Settings(BaseSettings):
     veo_ambient_gain_db: float = -36.0  # 나레이션 아래
     veo_ambient_solo_gain_db: float = -28.0  # 목소리 없는 컷
     fade_seconds: float = 0.4
+
+    # --- 나레이션 목소리 ----------------------------------------------------
+    # "fish"(기본)는 Fish Audio의 한국어 쇼츠 목소리로 읽는다 — 사람들이 실제로 쓰는 말투라
+    # Gemini보다 덜 딱딱하고 약 30% 빠르다(2026-10 비교). 키가 없거나 실패하면 Gemini(tts_voice)로 읽는다.
+    # 대사 더빙은 인물별 목소리가 필요해서 계속 Gemini TTS를 쓴다.
+    narration_tts: Literal["fish", "gemini"] = "fish"
+    fish_api_key: str = Field(default="", validation_alias=AliasChoices("FISH_API_KEY", "VIDEOMAKE_FISH_API_KEY"))
+    # s2.1-pro-free는 무료(2026-11-30까지 안내, 보장 없음). 유료는 s2.1-pro($15 / 100만 바이트, 한 편 약 1센트).
+    fish_model: str = "s2.1-pro-free"
+    # Fish 공개 목소리 "20대 여자_나긋나긋 쇼츠"(한국어 사용 6만 회, 2026-10). 연예인 복제 목소리는 쓰지 않는다.
+    fish_voice_id: str = "4e118bfbb83e401c84699c09b5f08257"
+    fish_speed: float = 1.0
 
     # --- 비용 가드 ---------------------------------------------------------
     max_cost_usd: Decimal = Decimal("6.00")

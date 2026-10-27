@@ -155,7 +155,7 @@ class Pipeline:
     ) -> dict[int, Path]:
         return await synthesize_narrations(
             sb,
-            tts=self.p.tts,
+            tts=self.p.narration_tts or self.p.tts,
             prompts=self.prompts,
             settings=self.settings,
             job=self.job,

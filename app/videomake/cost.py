@@ -31,6 +31,18 @@ IMAGE_PRICE_PER_IMAGE: dict[str, dict[str, Decimal]] = {
 TTS_PRICE_PER_CUT = Decimal("0.002")
 LLM_PRICE_PER_STORYBOARD = Decimal("0.01")
 
+# Fish Audio 나레이션: 입력 글자의 UTF-8 바이트로 받는다(한글 1자 = 3바이트). 2026-10 공개 단가.
+FISH_PRICE_PER_MILLION_BYTES: dict[str, Decimal] = {
+    "s2.1-pro-free": Decimal(0),
+    "s2.1-pro": Decimal("15"),
+    "s2-pro": Decimal("15"),
+}
+
+
+def fish_price(model: str, n_bytes: int) -> Decimal:
+    per_million = FISH_PRICE_PER_MILLION_BYTES.get(model, Decimal("15"))
+    return per_million * Decimal(n_bytes) / Decimal(1_000_000)
+
 
 def _lookup(table: dict[str, dict[str, Decimal]], model: str, key: str) -> Decimal:
     """모델 문자열의 접두사로 단가를 찾는다. 긴 접두사를 우선한다."""

@@ -143,12 +143,14 @@ def lint_narration(text: str, protagonist: str, window: float = 7.7) -> list[Vio
                 detail=f"{len(text)}자. 컷 길이 안에 읽히지 않는다.",
             )
         )
-    if not text.strip().rstrip(".!?…~ ").endswith("요"):
+    # 다음 컷으로 말이 이어지는 문장("~했는데요,", "~물어봤더니,")은 쉼표로 끝나도 된다.
+    continues = text.strip().endswith(",")
+    if not continues and not text.strip().rstrip(".!?…~ ").endswith("요"):
         out.append(
             Violation(
                 field="narration",
                 rule="해요체로 쓴다",
-                detail=f'"{text}" — "~했어요", "~였어요"처럼 끝낸다.',
+                detail=f'"{text}" — "~했어요", "~더라고요"처럼 끝낸다(다음 컷으로 이어지면 "~했는데요,"처럼 쉼표).',
             )
         )
     padded = f" {text} "
