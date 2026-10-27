@@ -17,8 +17,9 @@ from ..errors import ProviderError, RenderTimeout
 from ..job import JobStore
 from ..models import Stage, Storyboard, VideoHandle
 from ..prompts import PromptLibrary
-from ..providers.base import VideoProvider
+from ..providers.base import LookProvider, VideoProvider
 from .cut_images import mood_subject, solo_listener_side, voice_off_screen
+from .video_check import check_cut_video
 
 log = logging.getLogger(__name__)
 
@@ -32,7 +33,9 @@ async def render_cut_videos(
     job: JobStore,
     only: set[int] | None = None,
     force: bool = False,
+    look: LookProvider | None = None,
 ) -> dict[int, Path]:
+    """look: 받은 영상의 샷마다 같은 사람이 둘인지·없던 사람이 있는지 본다(없으면 샷 수·끝 조각만 검사)."""
     targets = [c for c in sb.cuts if only is None or c.index in only]
     pending = [c for c in targets if force or not job.cut_video(c.index).exists()]
     cached = {
@@ -84,6 +87,11 @@ async def render_cut_videos(
                     for m in sb.visible_cast(cut)
                     if (p := sb.character(m.name))
                 ] if cut.shots else [],
+                # 이 컷에 나오는 사람 명단. 영상 AI가 같은 사람을 둘로 만들거나 없던 사람을 넣지 않게 한다.
+                people=[
+                    (p.appearance.split(".")[0].strip() if (p := sb.character(m.name)) else m.name)
+                    for m in sb.visible_cast(cut)
+                ],
                 dialogue=lines,
                 solo_side=solo_listener_side(sb, cut, sb.visible_cast(cut)),
                 ambient=settings.veo_audio == "ambient",
@@ -179,6 +187,7 @@ async def render_cut_videos(
             )
             job.record_cost(f"cut{handle.cut_index}_video", Decimal(cost))
             results[handle.cut_index] = dest
+            await check_cut_video(sb, cut, dest, look=look, job=job)
             log.info(
                 "컷 %d 완료 — %s ($%.2f)", handle.cut_index, dest.name, cost
             )

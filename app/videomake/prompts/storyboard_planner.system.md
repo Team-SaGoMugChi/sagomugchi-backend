@@ -132,6 +132,11 @@ locations에 이 이야기에 나오는 장소를 하나씩 정의하고, 컷마
 - 급격한 컷 전환, 빠른 팬, 줌 인은 쓰지 않는다.
 - 손동작·몸짓·시선·걸음은 자유롭게 쓰되, **물건을 꺼내거나 집거나 옮기거나 손을 바꿔 드는 동작은 쓰지 않는다.**
   영상 모델은 이런 동작에서 물건을 없애거나 하나 더 만든다. 든 물건은 그 손에 그대로 둔다.
+- **주고받기·밀고 당기기 동작은 쓰지 않는다**(돈을 내밀자 돌려준다, 봉투를 쥐여 주자 사양한다 등).
+  영상 모델은 이런 동작을 줬다 가져갔다 반복한다. 대신 그 결과 상태를 첫 프레임에 두고 작은 동작만 쓴다.
+  예: "The owner's hand rests over Jieun's hand that holds the bag; Jieun slowly lowers her eyes."
+- **눈물이 흐르는 모습(tear runs, tears stream)을 쓰지 않는다.** 영상에서 인조적으로 보인다.
+  슬픔은 "her eyes look moist as she holds back tears", 고개 숙임, 느린 동작으로 절제해서 쓴다.
 - 장소를 떠나거나 들어가는 방향이 중요하면 화면 기준으로 쓴다. 예: "walks away from the door toward the
   camera"(문에서 멀어지며 카메라 쪽으로). "turns away"만 쓰면 반대로 들어가는 것처럼 보일 수 있다.
 

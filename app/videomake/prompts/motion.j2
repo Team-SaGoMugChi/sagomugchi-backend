@@ -12,6 +12,17 @@ Same people, same clothes, same place, same time of day and same light in every 
 In every shot, the person on the {{ o.position }} side of the first frame stays on that same side of the frame and keeps exactly this look: {{ o.look }}
 {% endfor -%}
 A reverse or reaction shot keeps everyone on the same side of the frame as in the first frame (do not cross the line).
+In an over-the-shoulder shot, the blurred shoulder and back of the head in the foreground belong to the
+OTHER person in the scene, recognizable by that person's own hair and clothes; the person facing the camera
+never also appears in the foreground.
+Everything a person holds or carries in the first frame (a bag, food, money, an umbrella) is still with the
+same person in every later shot, with the same look, unless the action hands it over. Nothing vanishes between shots.
+Every shot is the same room as the first frame: no new furniture, tables, chairs or rooms appear.
+Every shot continues the same moment: people stand exactly where they stood and hands and objects stay
+exactly where they were at the end of the previous shot. A reaction or over-the-shoulder shot starts no new action.
+An insert shot is the same position seen closer: the hands stay at the same height in the air (or on the same
+surface) as in the previous shot, with the same part of the room behind them; never move them onto a counter,
+table or display case that is not right between the people in the first frame.
 Nobody ever looks into the camera. No face fills the frame; an insert shot shows only hands or objects.
 In every shot that is not an insert, each visible person's whole head and face stay inside the frame.
 Each shot holds steady; any camera movement within a shot is very slow and minimal.
@@ -28,6 +39,13 @@ for the whole clip. No color grading, tint or exposure change.
 Every object stays solid and in place: anything a person holds stays in the same hand for the
 whole shot, and nothing in the scene appears, disappears or changes shape.
 Only the people and objects already in the first frame are in the shot; no one new enters.
+{% if people | default([]) -%}
+Exactly {{ people | length }} {{ "person is" if people | length == 1 else "different people are" }} in this clip and nobody else: {{ people | join("; ") }}.
+Each of them appears only once in any frame: never two copies of the same person, no twins or look-alikes,
+and no extra customers, passers-by or staff.
+{% endif -%}
+Each action happens once, in one direction, at a calm pace, and then the people hold still. Nothing is
+repeated, undone or reversed: nothing is handed over and then taken back, or offered again and again.
 {% if dialogue %}
 There are exactly {{ dialogue | map(attribute='speaker') | unique | list | length }} different speaking voices in this scene. Each voice is distinct.
 The shot opens with about one second of silence. Nobody speaks before the FIRST line below.
@@ -53,7 +71,7 @@ Only this one person is in the frame.{% else %}The speakers look at each other w
 
 Absolutely no subtitles, captions, letters or any on-screen text appear at any time.
 Audio: only the Korean lines quoted above, quiet ambient room tone underneath.
-No music. No narrator. No background conversation.
+No music. No narrator. No background conversation. No English words.
 {% else %}
 {% if listening -%}
 The person in the frame is listening to someone who is not in the frame (for example on the phone).
@@ -67,8 +85,8 @@ Absolutely no subtitles, captions, letters or any on-screen text appear at any t
 {% if ambient -%}
 Audio: only the natural sounds of this scene, matching what happens on screen (for example
 footsteps, street or cafe ambience, cups and dishes), at a quiet, natural level.
-No speech, no voices, no talking in the background, no music.
+No speech, no voices, no talking in the background, no English words, no music.
 {%- else -%}
-Audio: quiet ambient room tone only. No speech, no dialogue, no music.
+Audio: quiet ambient room tone only. No speech, no dialogue, no English words, no music.
 {%- endif %}
 {% endif %}

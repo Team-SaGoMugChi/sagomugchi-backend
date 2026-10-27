@@ -6,13 +6,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from google import genai
 from google.genai import types
 
 from ..errors import ProviderError
-from .base import PlaceCheck, SeenFrame, SeenPerson, retry_on_rate_limit
+from .base import CastCheck, PlaceCheck, TimedFrame, SeenFrame, SeenPerson, retry_on_rate_limit
 from .gemini_listen import parse_heard
 
 PROMPT = """Look at this image and answer in JSON only.
@@ -35,18 +36,52 @@ Also answer:
   description: "entrance", "far", "left" or "right" ("" if you cannot tell).
 {{"people": [...], "looks_at_camera": false, "same_place": true, "facing": "left"}}"""
 
+# 인물 확인(영상 프레임): 어깨너머 샷의 앞사람이 상대가 아니라 주인공 복제로 나오는 일이 있다.
+CAST_PROMPT = """
+The people who belong in this scene (nobody else should be there):
+{people}
+Also answer:
+"duplicate_person": true if the same person (same face, hair and clothes) appears more than once in the
+  image, for example once facing the camera and again as a blurred shoulder or back of the head in the foreground.
+"unknown_person": true if a clearly visible person matches none of the people listed above
+  (ignore tiny, far-away background figures and people seen only on posters or screens).
+{{"people": [...], "looks_at_camera": false, "duplicate_person": false, "unknown_person": false}}"""
+
+# 샷 사이 연결 확인: 영상 모델은 샷이 바뀌면 장면을 새로 꾸며 물건을 없애거나 손을 진열대 위로 옮긴다(관측).
+CONTINUITY_PROMPT = """These frames are in time order from one short film clip. Each is labelled with its time
+and shot number. What should happen in the clip: {scene}
+Report only clear continuity errors that a viewer would notice:
+- an object someone holds vanishes, appears from nowhere, or ends up in the other person's hand without
+  the action above showing it being handed over;
+- an action is repeated or reversed (something handed over and then taken back, or offered again);
+- in a later shot people or their hands are somewhere else. Check this carefully: in each shot, what is
+  under or behind the hands (open air, a counter, a table, a glass display case)? If a close-up of hands
+  shows them resting on a surface that is not between the people in the earlier wider shots (for example
+  they stood face to face on an open floor), that is an error;
+- the place itself changes.
+Ignore changes of camera angle, framing, blur and small natural movements. Hands or objects that are
+simply outside the frame in one shot are not an error; only report what is visibly wrong.
+First describe each shot in "shots": where the people stand, what each person holds, and what is directly
+under or behind their hands. Then list the errors. Answer in JSON only, details in short Korean:
+{{"shots": [{{"shot": 1, "people": "...", "holding": "...", "under_hands": "..."}}],
+  "problems": [{{"at": "6.5s", "detail": "..."}}]}}  (problems is an empty list if there is no clear error)"""
+
 
 class GeminiLookProvider:
     def __init__(self, client: genai.Client, model: str) -> None:
         self._client = client
         self._model = model
 
-    async def look(self, *, image: Path, place: PlaceCheck | None = None) -> SeenFrame:
+    async def look(
+        self, *, image: Path, place: PlaceCheck | None = None, cast: CastCheck | None = None
+    ) -> SeenFrame:
         contents = [types.Part.from_bytes(data=image.read_bytes(), mime_type="image/png")]
         text = PROMPT
         if place is not None and place.sheet.exists():
             contents.append(types.Part.from_bytes(data=place.sheet.read_bytes(), mime_type="image/png"))
             text += PLACE_PROMPT.format(description=place.description)
+        if cast is not None:
+            text += CAST_PROMPT.format(people="\n".join(f"- {p}" for p in cast.people))
         contents.append(text)
 
         async def call():
@@ -71,7 +106,36 @@ class GeminiLookProvider:
             looks_at_camera=bool(data.get("looks_at_camera")),
             same_place=same if isinstance(same, bool) else None,
             facing=facing if facing in SIDES else "",
+            duplicate_person=_flag(data.get("duplicate_person")),
+            unknown_person=_flag(data.get("unknown_person")),
         )
+
+    async def continuity(self, *, frames: Sequence[TimedFrame], scene: str) -> list[str]:
+        contents: list = []
+        for f in frames:
+            contents.append(f"[{f.time:.1f}s, shot {f.shot}]")
+            contents.append(types.Part.from_bytes(data=f.image.read_bytes(), mime_type="image/png"))
+        contents.append(CONTINUITY_PROMPT.format(scene=scene))
+
+        async def call():
+            return await self._client.aio.models.generate_content(
+                model=self._model,
+                contents=contents,
+                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0),
+            )
+
+        try:
+            data = parse_heard((await retry_on_rate_limit(call, what="샷 연결 확인")).text)
+        except Exception as exc:
+            raise ProviderError(f"샷 연결 확인 실패 ({self._model}): {exc}") from exc
+        return [
+            f"{p.get('at', '').strip()} {str(p.get('detail', '')).strip()}".strip()
+            for p in data.get("problems") or [] if isinstance(p, dict) and p.get("detail")
+        ]
+
+
+def _flag(value: object) -> bool | None:
+    return value if isinstance(value, bool) else None
 
 
 SIDES = ("entrance", "far", "left", "right")

@@ -149,6 +149,7 @@ class Pipeline:
             job=self.job,
             only=only,
             force=force,
+            look=self.p.look,
         )
 
     async def narrate(
