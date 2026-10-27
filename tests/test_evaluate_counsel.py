@@ -33,3 +33,31 @@ def test_markdown_puts_heldout_first():
         ev.evaluate_crisis(ev.TUNING_CASES), ev.evaluate_crisis(ev.HELDOUT_CASES), None
     )
     assert md.index("### 검증 세트") < md.index("### 개발 세트")
+    
+
+def test_aggregate_live_reports_mean_and_std():
+    base = {
+        "model": "m", "turns": 2, "samples": [],
+        "before_by_rule": {"multi_question": 1}, "after_by_rule": {},
+        "violation_rate_after": 0.0, "regenerated_rate": 0.5,
+        "repaired_rate": 0.0, "fallback_rate": 0.0, "exposed_rate": 0.0,
+    }
+    runs = [{**base, "violation_rate_before": v} for v in (0.2, 0.4)]
+    agg = ev.aggregate_live(runs)
+    assert agg["runs"] == 2
+    assert agg["violation_rate_before"]["mean"] == 0.3
+    assert agg["violation_rate_before"]["std"] > 0
+    assert agg["before_by_rule"] == {"multi_question": 2}
+
+
+def test_markdown_shows_judge_rows():
+    tuning = ev.evaluate_crisis(ev.TUNING_CASES)
+    heldout = ev.evaluate_crisis(ev.HELDOUT_CASES)
+    judge = {
+        "heldout_judge": heldout, "heldout_hybrid": heldout,
+        "tuning_judge": tuning, "tuning_hybrid": tuning,
+        "stats": {"model": "gpt-4o-mini", "calls": 1, "failed": 0, "avg_seconds": 0.5},
+    }
+    md = ev.render_markdown(tuning, heldout, None, judge)
+    assert "v4 혼합(규칙+LLM)" in md
+    assert md.index("### 검증 세트") < md.index("### 개발 세트")
