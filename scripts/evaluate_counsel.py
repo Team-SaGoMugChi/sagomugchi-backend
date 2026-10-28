@@ -413,6 +413,7 @@ class LiveStats:
     first_by_rule: Counter = field(default_factory=Counter)
     final_by_rule: Counter = field(default_factory=Counter)
     samples: list = field(default_factory=list)
+    turn_log: list = field(default_factory=list)  # 턴별 원자료 — 사람 검수·통계용
 
 
 def evaluate_live(model: str | None) -> dict:
@@ -448,7 +449,8 @@ def evaluate_live(model: str | None) -> dict:
             stats.regenerated += result.regenerated
             stats.repaired += result.repaired
             stats.fallback += result.fallback
-            stats.exposed_turns += bool(check_reply(result.reply, user_texts=user_texts))
+            exposed = check_reply(result.reply, user_texts=user_texts)
+            stats.exposed_turns += bool(exposed)
             stats.first_by_rule.update(v.code for v in result.first_violations)
             stats.final_by_rule.update(v.code for v in result.final_violations)
             if result.first_violations:
@@ -461,6 +463,18 @@ def evaluate_live(model: str | None) -> dict:
                         "violations": [v.code for v in result.first_violations],
                     }
                 )
+            stats.turn_log.append(
+                {
+                    "scenario": name,
+                    "turn": len(user_texts),
+                    "user": text,
+                    "raw": raw,
+                    "final": result.reply,
+                    "first_violations": [v.code for v in result.first_violations],
+                    "exposed_violations": [v.code for v in exposed],
+                }
+            )
+
             messages.append({"role": "assistant", "content": result.reply})
             print(f"  [{name}] {'위반→' + ','.join(v.code for v in result.first_violations) if result.first_violations else '통과'}")
 
@@ -477,6 +491,8 @@ def evaluate_live(model: str | None) -> dict:
         "before_by_rule": dict(stats.first_by_rule),
         "after_by_rule": dict(stats.final_by_rule),
         "samples": stats.samples,
+        "turn_log": stats.turn_log,
+
     }
 
 
@@ -508,6 +524,9 @@ def aggregate_live(runs: list[dict]) -> dict:
     out["before_by_rule"] = dict(before)  # 전체 실행 합계
     out["after_by_rule"] = dict(after)
     out["samples"] = [s for r in runs for s in r["samples"]]
+    out["turn_log"] = [
+        {**t, "run": i + 1} for i, r in enumerate(runs) for t in r.get("turn_log", [])
+    ]
     return out
 
 
@@ -622,6 +641,7 @@ def main() -> None:
     parser.add_argument("--runs", type=int, default=1, help="--live 반복 횟수 (평균±표준편차)")
     parser.add_argument("--judge", action="store_true", help="LLM 2단계 위기 판정 비교(과금)")
     parser.add_argument("--judge-model", default=None, help="--judge 모델 (기본: COUNSEL_JUDGE_MODEL)")
+    parser.add_argument("--tag", default="", help="결과 파일 이름 꼬리표 (예: base, sft)")
     parser.add_argument("--out", default=str(ROOT / "docs" / "evaluations"))
     args = parser.parse_args()
 
@@ -650,7 +670,8 @@ def main() -> None:
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    stem = out / f"counsel-eval-{date.today().isoformat()}"
+    tag = f"-{args.tag}" if args.tag else ""
+    stem = out / f"counsel-eval-{date.today().isoformat()}{tag}"
     stem.with_suffix(".json").write_text(
         json.dumps(
             {"crisis_heldout": heldout, "crisis_tuning": tuning, "judge": judge, "live": live},

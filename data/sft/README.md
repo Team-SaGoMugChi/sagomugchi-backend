@@ -39,29 +39,26 @@ python scripts/generate_sft_data.py --count 20 --out data/sft/generated.jsonl
 
 검수는 나눠서 한다. 1인당 50개씩 맡고, 삭제한 대화 수를 기록해 둔다.
 
-## 학습 (검수 완료 후)
+## 학습
 
 ```bash
-# 1. 파일 업로드
-openai api files.create -f data/sft/generated.jsonl -p fine-tune
+# 1. 정제: 규칙 위반·위기·평가 문장 겹침·중복 대화 제거 → train/val (prepare-report.md에 개수 기록)
+python -X utf8 scripts/prepare_sft_data.py
 
-# 2. 학습 시작 (파일 ID는 위 결과에서)
-openai api fine_tuning.jobs.create -t <file-id> -m gpt-4o-mini-2024-07-18
+# 2. 학습 시작 (기본 gpt-4o-2024-08-06, 3 epoch, seed 42) — 작업 ID는 finetune-jobs.md에 남는다
+python -X utf8 scripts/finetune_counsel.py create
 
-# 3. 상태 확인
-openai api fine_tuning.jobs.list
+# 3. 진행·손실값 확인 → 끝나면 ft:... 모델 이름이 나온다
+python -X utf8 scripts/finetune_counsel.py status ftjob-...
 ```
 
-학습이 끝나면 나오는 모델 이름(`ft:gpt-4o-mini:...`)을 `.env`에 넣는다.
+## 비교 평가
 
+```bash
+python -X utf8 scripts/evaluate_counsel.py --live --runs 3 --tag base
+python -X utf8 scripts/evaluate_counsel.py --live --runs 3 --model ft:... --tag sft
+python -X utf8 scripts/counsel_stats.py compare docs/evaluations/counsel-eval-<날짜>-base.json docs/evaluations/counsel-eval-<날짜>-sft.json
+python -X utf8 scripts/counsel_stats.py export-replies <base.json> <sft.json> --n 40   # 블라인드 사람 검수
 ```
-LLM_MODEL=ft:gpt-4o-mini:...
-```
 
-서버를 재시작하면 상담이 학습 모델로 응답한다. 품질이 기대에 못 미치면
-`LLM_MODEL=gpt-4o`로 되돌리면 된다 — 코드는 수정하지 않는다.
-
-## 비교 방법
-
-같은 질문 10개를 기존 모델과 학습 모델에 각각 넣고, 팀원 2명이
-"어느 쪽이 더 상담답게 답했는지" 눈으로 비교한다. 결과를 이 파일 아래에 기록한다.
+서비스 적용은 `.env`의 `LLM_MODEL=ft:...` (코드 수정 없음). 되돌릴 때는 `LLM_MODEL=gpt-4o`.
