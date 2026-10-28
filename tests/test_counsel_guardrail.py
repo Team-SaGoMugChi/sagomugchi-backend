@@ -188,3 +188,31 @@ def test_every_crisis_axis_has_reply_with_hotline() -> None:
 def test_every_axis_has_caution_guide() -> None:
     assert set(CAUTION_GUIDES) == set(RiskAxis)
     assert "오또" in caution_guide(assess("너랑 사귀고 싶어"))
+
+
+@pytest.mark.parametrize(
+    "text,level,axis",
+    [
+        ("더 살아서 뭐해", RiskLevel.CRISIS, RiskAxis.SUICIDE),
+        ("잠들면 안 깼으면 좋겠다", RiskLevel.CRISIS, RiskAxis.SUICIDE),
+        ("아빠가 술 먹고 물건 던졌어", RiskLevel.CAUTION, RiskAxis.DANGER),
+        ("걔 가만 안 둬", RiskLevel.CAUTION, RiskAxis.HARM_OTHERS),
+        ("남들이 내 생각을 다 아는 것 같아", RiskLevel.CAUTION, RiskAxis.PSYCHOSIS),
+    ],
+)
+def test_reported_misses_are_regressions(text: str, level: RiskLevel, axis: RiskAxis) -> None:
+    result = assess(text)
+    assert (result.level, result.axis) == (level, axis), result
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "오래 살아서 뭐해? 건강한 게 좋지",
+        "잠들면 안 돼, 일어나서 출근해야 해",
+        "아이가 장난감을 던졌어",
+        "내 생각을 다 아는 친구가 있어",
+    ],
+)
+def test_nearby_everyday_phrases_do_not_escalate(text: str) -> None:
+    assert assess(text).level is RiskLevel.NONE
