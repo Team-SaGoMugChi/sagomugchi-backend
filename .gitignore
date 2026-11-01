@@ -29,3 +29,6 @@ CAP*.jpeg
 data/sft/*.jsonl
 try_counsel.py
 serviceAccountKey.json
+
+# CBT SFT 검수용 (생성 데이터 전체가 들어 있어 커밋하지 않는다)
+data/sft/cbt-review.md
