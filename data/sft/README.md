@@ -62,3 +62,24 @@ python -X utf8 scripts/counsel_stats.py export-replies <base.json> <sft.json> --
 ```
 
 서비스 적용은 `.env`의 `LLM_MODEL=ft:...` (코드 수정 없음). 되돌릴 때는 `LLM_MODEL=gpt-4o`.
+
+## CBT 단계형 데이터 (현재 기준)
+
+앱의 상담은 CBT 단계형(상담봇이 JSON으로 답함)이라 위의 자유 대화 데이터로는 학습할 수 없다.
+OpenAI 셀프 파인튜닝은 종료되어(2026-05) 공개 모델(LoRA)로 학습한다.
+
+```bash
+# 1. 소량으로 확인 → 비용·완주율 보고 늘린다 (이어서 실행하면 덧붙음)
+python -X utf8 scripts/generate_cbt_sft_data.py --count 5
+python -X utf8 scripts/generate_cbt_sft_data.py --count 60 --seed 1
+
+# 2. 정제 + 검수용 표 만들기 → data/sft/cbt-review.md
+python -X utf8 scripts/prepare_cbt_sft_data.py --review
+
+# 3. 검수: 뺄 회기 id를 data/sft/cbt_drop.txt에 한 줄씩 → 다시 정제
+python -X utf8 scripts/prepare_cbt_sft_data.py
+```
+
+- 한 턴이 학습 예시 하나다(prompt = 그 단계 시스템 프롬프트 + 지난 대화, completion = 상담봇 JSON).
+- 검증용은 회기 단위로 나눈다.
+- 검수 기준: 위 기준 + 단계에 맞는 질문인지, extracted가 사용자가 실제로 한 말과 맞는지.
