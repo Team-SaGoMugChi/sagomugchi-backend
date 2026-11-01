@@ -124,12 +124,15 @@ async def counsel_turn(payload: CounselTurnRequest) -> CounselTurnResponse:
 
     # 응답 검증 레이어 — 보내기 전에 규칙 위반을 검사하고, 어기면 한 번 다시 쓴다.
     # 다시 쓸 때는 reply만 바꾸고, 단계 판단(advance·extracted)은 1차 응답을 따른다.
+    # 지난 미션이 있으면 "지난번에 정한 미션"은 실제 기록이라 지어낸 기억으로 보지 않는다
+    # (막으면 0단계 응답이 안전 문장으로 바뀌어 단계가 넘어가지 않는다).
     checked = counsel_output_check.verify(
         output.reply or _FALLBACK,
         regenerate=lambda feedback: ask(system_prompt + feedback).reply,
         user_texts=[m.text for m in payload.history if m.speaker == "user"]
         + [payload.user_text],
-        has_recent_themes=bool(context.recent_themes),
+        has_recent_themes=bool(context.recent_themes)
+        or bool(cbt and (cbt.last_mission or "").strip()),
     )
 
     state = None
