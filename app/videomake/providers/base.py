@@ -147,6 +147,7 @@ class SeenFrame(BaseModel):
 
     people: list[SeenPerson]
     looks_at_camera: bool
+    split_frame: bool = False  # 한 장면이 아니라 위아래·좌우 칸으로 나뉘어 그려졌다.
     # 장소 확인(PlaceCheck를 줬을 때만): 장소 시트와 같은 곳인가, 카메라가 어느 쪽을 보나.
     same_place: bool | None = None
     facing: str = ""  # "entrance" / "far" / "left" / "right" / ""(모름)

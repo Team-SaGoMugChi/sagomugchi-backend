@@ -43,7 +43,7 @@ Use the location reference sheet ONLY to know what each side of the place looks 
 The time of day and lighting follow SCENE, not the location sheet: if SCENE says evening or night,
 the sky outside the windows is dark and the lamps are on, even if the sheet shows daylight.
 Show the side of the place that SCENE says the camera faces, from the camera position in SCENE.
-Do NOT copy the viewpoint or composition of any panel of the location sheet.
+Do NOT copy the viewpoint or composition of any panel of the location sheet, and do NOT copy its grid layout.
 {% endif -%}
 SAME PLACE IN EVERY SHOT: keep this place's constant features exactly (wall and floor colors and
 materials, the ceiling lights, the style of the furniture){% if camera_distance == 'medium' %} in the background behind the people.
@@ -70,6 +70,7 @@ so their faces and expressions are easy to read. Still no close-up of a face fil
 The character occupies a modest portion of the frame with visible surrounding space.
 {% endif -%}
 {{ 'Vertical' if aspect_ratio == '9:16' else 'Horizontal' }} {{ aspect_ratio }} composition.
+ONE continuous view from one camera fills the whole frame: never panels, a split screen, a collage or stacked pictures.
 
 MOOD:
 {{ mood_block }}

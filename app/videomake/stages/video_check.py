@@ -152,6 +152,8 @@ async def _people_issues(
             _frame_at, path, (a + b) / 2, job.cut_dir(cut.index) / f"check_shot{k}.png"
         )
         seen = await look.look(image=frame, cast=check)
+        if seen.split_frame:
+            issues.append(f"샷 {k}: 화면이 여러 칸으로 나뉘어 있다.")
         if seen.duplicate_person:
             issues.append(f"샷 {k}: 같은 사람이 두 번 나온다.")
         if seen.unknown_person:

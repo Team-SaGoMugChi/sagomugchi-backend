@@ -38,6 +38,10 @@ def image_problems(sb: Storyboard, cut: Cut, seen: SeenFrame) -> list[str]:
     cast = sb.visible_cast(cut)
     people = [p for p in seen.people if p.height_ratio >= TINY_PERSON]
     problems = []
+    # 장소 시트가 여러 칸짜리라 그림 모델이 칸 구성을 따라 그리는 일이 있다(2026-11 교문 컷 관측). 사람 수는 맞아 보여 따로 본다.
+    if seen.split_frame:
+        problems.append("The image is split into separate panels. Draw ONE continuous view from one camera, filling "
+                        "the whole frame, with no panels, dividing lines or collage.")
     if len(people) < len(cast):
         problems.append(f"Only {len(people)} person(s) are visible but the scene needs {len(cast)}.")
     # 사람이 넘치는 경우: 화면 밖에 있어야 할 상대 대신 주인공 복제가 가장자리에 그려지는 일이 있다(2026-10 졸업식 컷 관측).

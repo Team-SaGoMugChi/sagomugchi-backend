@@ -23,7 +23,9 @@ PROMPT = """Look at this image and answer in JSON only.
                   divided by the image height, between 0 and 1,
   "legs_visible": true if that person's knees, lower legs or feet are visible in the image.
 "looks_at_camera": true if any person looks directly into the camera.
-{"people": [{"gender": "m", "height_ratio": 0.6, "legs_visible": false}], "looks_at_camera": false}"""
+"split_frame": true if the image is divided into two or more separate pictures or panels (stacked, side by side,
+  a collage or grid) instead of one continuous view. A window, mirror, door or screen inside one view is not a split.
+{"people": [{"gender": "m", "height_ratio": 0.6, "legs_visible": false}], "looks_at_camera": false, "split_frame": false}"""
 
 # 장소 확인: 두 번째 그림은 그 장소를 네 방향에서 본 시트다. 같은 곳인지, 어느 벽을 보는지 답한다.
 PLACE_PROMPT = """
@@ -104,6 +106,7 @@ class GeminiLookProvider:
         return SeenFrame(
             people=people,
             looks_at_camera=bool(data.get("looks_at_camera")),
+            split_frame=data.get("split_frame") is True,
             same_place=same if isinstance(same, bool) else None,
             facing=facing if facing in SIDES else "",
             duplicate_person=_flag(data.get("duplicate_person")),

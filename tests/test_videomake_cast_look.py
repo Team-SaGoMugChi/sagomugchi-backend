@@ -73,3 +73,15 @@ def test_extra_or_cloned_person_in_a_cut_image_is_redrawn():
     assert any("Remove the extra person" in p for p in image_problems(sb, cut, two))
     clone = _seen(duplicate_person=True)
     assert any("appears twice" in p for p in image_problems(sb, cut, clone))
+
+
+def test_split_frame_is_redrawn_and_prompt_forbids_panels():
+    sb = _sb()
+    cut = sb.cuts[0]
+    assert any("ONE continuous view" in p for p in image_problems(sb, cut, _seen(split_frame=True)))
+    assert not any("panels" in p for p in image_problems(sb, cut, _seen()))
+    p = get_prompts()
+    text = p.render("cut_image.j2", people=[], cast=[], image_prompt="x", location=sb.locations[0],
+                    has_location_sheet=True, has_moment_image=False, camera_distance="full",
+                    aspect_ratio="9:16", mood_block="", style_block="", thumbnail=False, solo_side="")
+    assert "do NOT copy its grid layout" in text and "never panels" in text
