@@ -293,12 +293,12 @@ def compose(
     first_audio = len(videos)
     if audios:
         labels = []
-        for k, (_, delay_ms, gain) in enumerate(audios):
+        for k, (_, at_ms, gain) in enumerate(audios):
             label = f"a{k}"
             filters.append(
                 f"[{first_audio + k}:a]aresample={AUDIO_RATE},"
                 f"aformat=channel_layouts=stereo,volume={gain}dB,"
-                f"adelay={delay_ms}:all=1[{label}]"
+                f"adelay={at_ms}:all=1[{label}]"
             )
             labels.append(f"[{label}]")
         filters.append(

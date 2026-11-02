@@ -252,3 +252,24 @@ def test_fish_take_that_runs_long_is_retried_then_falls_back(tmp_path, monkeypat
 def test_default_pause_after_voice_is_relaxed():
     s = Settings(_env_file=None)
     assert s.edit_tail_seconds == 1.1 and s.narration_delay_ms == 300
+
+
+@needs_ffmpeg
+def test_subtitles_follow_narration_when_music_is_laid(tmp_path, monkeypatch):
+    # 실측 버그(2026-10-28): 소리를 합치는 반복문이 나레이션 지연 변수를 덮어써서, 음악이 깔린 영상의
+    # 나레이션 자막이 음악 시작 시각만큼 밀렸다(첫 자막 0.3초 → 11.6초).
+    monkeypatch.setattr(fake, "STEP_DELAY_SECONDS", 0)
+    settings = _settings(tmp_path, min_cuts=3, min_total_seconds=4)
+    job = JobStore(settings.jobs_dir, "music-subs")
+    pipe = Pipeline(providers=build_fake_providers(settings), job=job, settings=settings)
+
+    async def run():
+        sb = await pipe.run_to_gate(DiaryInput(text="일기"))
+        pipe.approve(sb)
+        plan = EditPlan(music=[MusicCue(from_cut=sb.cuts[1].index, to_cut=sb.cuts[-1].index, prompt="soft piano")])
+        (job.dir / "edit_plan.json").write_text(plan.model_dump_json(), encoding="utf-8")
+        return await pipe.finish(sb)
+
+    asyncio.run(run())
+    first = job.subtitles_path.read_text(encoding="utf-8").split("\n")[3]
+    assert first.startswith("00:00:00.150 -->")  # 첫 컷 시작 + 나레이션 지연 150ms
