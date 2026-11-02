@@ -77,7 +77,7 @@ def test_planner_setting_switches_to_team(tmp_path, monkeypatch):
     pipe = Pipeline(providers=base.__class__(**{**base.__dict__, "llm": llm}),
                     job=JobStore(settings.jobs_dir, "p"), settings=settings)
     asyncio.run(pipe.plan(DiaryInput(text="일기")))
-    assert [n for n, _ in llm.calls] == ["ProductionNotes", "_StoryboardDraft", "Review", "ShotPlan"]
+    assert [n for n, _ in llm.calls] == ["ProductionNotes", "_StoryboardDraft", "Review", "ShotPlan", "_Script"]
 
 
 def test_default_planner_is_single():

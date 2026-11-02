@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     planner: Literal["single", "team"] = "single"
     # 제작팀 모드의 촬영감독 단계: 나레이션·무음 컷 일부를 한 번 생성 안에서 2~3개 샷으로 나눈다.
     shot_split: bool = True
+    narration_polish: bool = True  # 나레이션 전체를 한 번 더 보며 이어지게 다듬는다
     # 영상 전용 OpenAI 키(VIDEOMAKE_OPENAI_API_KEY). 팀 결정으로 키를 용도별로 나눈다 —
     # 상담의 LLM_API_KEY는 읽지 않는다. 사용량·비용을 기능별로 따로 보기 위함.
     openai_api_key: str = ""
@@ -173,6 +174,7 @@ class Settings(BaseSettings):
     tight_edit: bool = True
     # 목소리가 끝난 뒤 남기는 여유. 0.35초는 다급하게 느껴졌고 1.1초로 정했다(2026-10 사용자 비교).
     edit_tail_seconds: float = 1.1
+    edit_flow_tail_seconds: float = 0.4  # 쉼표로 끝나 다음 컷으로 말이 이어질 때
     edit_min_cut_seconds: float = 2.2
     narration_delay_ms: int = 300  # 컷이 시작하고 목소리가 들어오기까지
 

@@ -27,6 +27,7 @@ from ..errors import VideomakeError
 from ..job import JobStore
 from ..models import Cut, EditPlan, Stage, Storyboard
 from .dialogue_voice import _load_mono, speech_segments
+from .narration_flow import continues_into_next
 from .subtitles import write_subtitles
 
 log = logging.getLogger(__name__)
@@ -127,13 +128,15 @@ def edit_lengths(
     voice_of: 대사 컷마다 실제로 나가는 소리(더빙 파일 또는 영상).
     """
     lengths: list[float] = []
-    for cut in sb.cuts:
+    for pos, cut in enumerate(sb.cuts):
         full = float(cut.duration_seconds)
         need = _voice_end(cut, narrations, voice_of, delay)
-        if not settings.tight_edit or need is None or cut.index in hold:
+        # 쉼표로 끝난 나레이션이 다음 목소리로 이어지면 hold 컷이어도 짧게 넘긴다.
+        flows = continues_into_next(cut) and pos + 1 < len(sb.cuts) and not sb.cuts[pos + 1].is_silent
+        if not settings.tight_edit or need is None or (cut.index in hold and not flows):
             lengths.append(full)
             continue
-        end = need + settings.edit_tail_seconds
+        end = need + (settings.edit_flow_tail_seconds if flows else settings.edit_tail_seconds)
         floor = settings.edit_min_cut_seconds
         # 샷을 나눈 컷: 목소리가 끝날 때 이미 시작한 샷은 잠깐은 보여 주고(번쩍임 방지),
         # 아직 시작하지 않은 샷은 버린다 — 샷을 보여주려고 정적을 남기지 않는다.

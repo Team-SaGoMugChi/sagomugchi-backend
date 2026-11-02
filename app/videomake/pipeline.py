@@ -26,6 +26,7 @@ from .stages.dialogue_voice import dub_dialogue
 from .stages.edit_plan import load_plan, make_music, plan_edit
 from .stages.film_team import plan_with_team
 from .stages.narration import synthesize_narrations
+from .stages.narration_flow import polish_narration
 from .stages.reference_sheets import build_reference_sheets
 from .stages.review import build_review
 from .stages.storyboard import plan_storyboard
@@ -64,13 +65,16 @@ class Pipeline:
             diary.model_dump_json(indent=2), encoding="utf-8"
         )
         planner = plan_with_team if self.settings.planner == "team" else plan_storyboard
-        return await planner(
+        sb = await planner(
             diary,
             llm=self.p.llm,
             prompts=self.prompts,
             settings=self.settings,
             job=self.job,
         )
+        if self.settings.narration_polish:
+            sb = await polish_narration(sb, diary, llm=self.p.llm, job=self.job)
+        return sb
 
     # --- 2~3. 캐릭터 시트 + 컷 이미지 ------------------------------------------
     async def build_images(
