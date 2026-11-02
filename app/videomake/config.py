@@ -165,7 +165,7 @@ class Settings(BaseSettings):
     fish_model: str = "s2.1-pro-free"
     # Fish 공개 목소리 "20대 여자_나긋나긋 쇼츠"(한국어 사용 6만 회, 2026-10). 연예인 복제 목소리는 쓰지 않는다.
     fish_voice_id: str = "4e118bfbb83e401c84699c09b5f08257"
-    fish_speed: float = 1.0
+    fish_speed: float = 0.95  # 1.0은 살짝 급하게 들렸다(2026-11 사용자 의견)
 
     # --- 편집 ---------------------------------------------------------------
     # 목소리가 끝난 뒤 남는 정적을 잘라 컷을 줄인다(쇼츠 편집 관행: 0.3~0.5초 넘는 공백은 자른다).
@@ -181,7 +181,7 @@ class Settings(BaseSettings):
     # 목소리와 장면 소리만 둔다. 깔 때는 목소리 아래에서 작게 들리게 한다.
     music: bool = True
     music_model: str = "lyria-002"
-    music_level_db: float = -34.0  # 음악 크기(dBFS RMS). 나레이션은 약 -15dB
+    music_level_db: float = -44.0  # 음악 크기(dBFS RMS). 나레이션은 약 -15dB. -34는 컸다(2026-11 사용자 의견)
 
     # --- 비용 가드 ---------------------------------------------------------
     max_cost_usd: Decimal = Decimal("6.00")
