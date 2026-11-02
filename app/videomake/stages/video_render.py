@@ -13,7 +13,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from ..config import Settings
-from ..errors import ProviderError, RenderTimeout
+from ..errors import ProviderError, RenderTimeout, VideoBlocked
 from ..job import JobStore
 from ..models import Stage, Storyboard, VideoHandle
 from ..prompts import PromptLibrary
@@ -22,6 +22,14 @@ from .cut_images import mood_subject, solo_listener_side, voice_off_screen
 from .video_check import check_cut_video
 
 log = logging.getLogger(__name__)
+
+# 안전 필터 거절 문구. Veo: "the input image violates Vertex AI's usage guidelines"(code 3, 과금 없음),
+# 영상 없이 끝난 작업: fetch의 "안전 필터 사유". 서버 과부하 같은 실패와 구별해 그림을 바꿔 다시 시도한다.
+_BLOCK_WORDS = ("usage guidelines", "안전 필터")
+
+
+def _is_blocked(error: object) -> bool:
+    return any(word in str(error) for word in _BLOCK_WORDS)
 
 
 async def render_cut_videos(
@@ -135,6 +143,7 @@ async def render_cut_videos(
             to_submit.append(cut)
 
     errors: list[str] = []
+    blocked: set[int] = set()
     # 일부 제출이 실패해도 성공한 것들은 끝까지 회수한다.
     submitted = await asyncio.gather(
         *(submit(c) for c in to_submit), return_exceptions=True
@@ -167,6 +176,8 @@ async def render_cut_videos(
             if status.failed:
                 errors.append(f"컷 {handle.cut_index}: {status.error}")
                 log.error("컷 %d 실패: %s", handle.cut_index, status.error)
+                if _is_blocked(status.error):
+                    blocked.add(handle.cut_index)
                 # 실패한 작업의 핸들을 지운다. 남겨 두면 다시 시도해도 실패한 작업만
                 # 다시 조회해 영원히 실패한다(서버 과부하 code 8에서 관측). 실패한 작업은 과금되지 않는다.
                 job.cut_handle(handle.cut_index).unlink(missing_ok=True)
@@ -178,6 +189,8 @@ async def render_cut_videos(
                 # 작업은 끝났는데 영상이 없다(안전 필터 등). 핸들을 남기면 재시도가 같은 결과만 다시 읽는다.
                 errors.append(str(exc))
                 log.error("컷 %d 실패: %s", handle.cut_index, exc)
+                if _is_blocked(exc):
+                    blocked.add(handle.cut_index)
                 job.cut_handle(handle.cut_index).unlink(missing_ok=True)
                 continue
             cut = sb.cut(handle.cut_index)
@@ -200,8 +213,8 @@ async def render_cut_videos(
         errors=errors,
     )
     if errors:
-        raise ProviderError(
-            "일부 컷 렌더 실패 (성공한 컷은 캐시되어 재렌더되지 않는다):\n"
-            + "\n".join(f"  - {e}" for e in errors)
-        )
+        message = "일부 컷 렌더 실패 (성공한 컷은 캐시되어 재렌더되지 않는다):\n" + "\n".join(f"  - {e}" for e in errors)
+        if blocked:
+            raise VideoBlocked(message, cuts=blocked)
+        raise ProviderError(message)
     return results

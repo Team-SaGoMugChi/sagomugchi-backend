@@ -91,7 +91,7 @@ class VideoJobManager:
             )
             sb = await pipe.run_to_gate(to_diary_input(req))
             pipe.approve(sb)
-            await pipe.finish(sb)
+            await pipe.finish(sb, redraw_blocked=True)
             state.status = "done"
         except BudgetExceeded as exc:
             log.warning("영상 작업 %s 비용 상한 초과: %s", job_id, exc)

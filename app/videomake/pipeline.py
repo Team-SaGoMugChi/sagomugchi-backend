@@ -14,8 +14,9 @@ from pathlib import Path
 
 from .config import Settings, get_settings
 from .cost import enforce_budget, estimate_full_job
+from .errors import VideoBlocked
 from .job import JobStore
-from .models import CostEstimate, DiaryInput, Storyboard
+from .models import CameraDistance, CostEstimate, DiaryInput, Storyboard
 from .prompts import PromptLibrary, get_prompts
 from .providers.registry import Providers
 from .stages.character_sheet import build_character_sheet
@@ -32,6 +33,12 @@ from .stages.thumbnail import build_thumbnail
 from .stages.video_render import render_cut_videos
 
 log = logging.getLogger(__name__)
+
+
+# 안전 필터 거절 시 다시 그리는 횟수와 넓혀 갈 구도.
+BLOCK_REDRAWS = 2
+WIDER: dict[str, CameraDistance] = {"medium": "full", "full": "wide", "wide": "wide"}
+WIDER_NOTE = "Seen from farther away: everyone is visible from head to toe and faces are small in the frame."
 
 
 class Pipeline:
@@ -137,20 +144,43 @@ class Pipeline:
         only: set[int] | None = None,
         force: bool = False,
         confirm: Callable[[CostEstimate, Decimal], bool] | None = None,
+        redraw_blocked: bool = False,
     ) -> dict[int, Path]:
+        """redraw_blocked: 안전 필터에 거절된 컷을 넓은 구도로 다시 그려 자동 승인·재시도한다.
+        사람이 그림을 검수하는 흐름에서는 켜지 않는다(승인 안 한 그림으로 영상을 만들게 된다)."""
         estimate = self.estimate(sb, only=only)
         log.info("예상 비용 $%.2f (상한 $%.2f)", estimate.total_usd, self.settings.max_cost_usd)
         enforce_budget(estimate, self.settings.max_cost_usd, confirm=confirm)
-        return await render_cut_videos(
-            sb,
-            video=self.p.video,
-            prompts=self.prompts,
-            settings=self.settings,
-            job=self.job,
-            only=only,
-            force=force,
-            look=self.p.look,
-        )
+        for attempt in range(BLOCK_REDRAWS + 1):
+            try:
+                return await render_cut_videos(
+                    sb,
+                    video=self.p.video,
+                    prompts=self.prompts,
+                    settings=self.settings,
+                    job=self.job,
+                    only=only,
+                    # 다시 시도할 때 force를 쓰면 이미 받은 컷까지 다시 과금된다.
+                    force=force and attempt == 0,
+                    look=self.p.look,
+                )
+            except VideoBlocked as exc:
+                if not redraw_blocked or attempt == BLOCK_REDRAWS:
+                    raise
+                log.warning("컷 %s 안전 필터 거절 — 넓은 구도로 다시 그린다(%d/%d)", sorted(exc.cuts), attempt + 1, BLOCK_REDRAWS)
+                await self._redraw_wider(sb, exc.cuts)
+        raise AssertionError("unreachable")
+
+    async def _redraw_wider(self, sb: Storyboard, cuts: set[int]) -> None:
+        """얼굴이 크게 나온 구도가 주로 거절됐다(2026-10 실측: 허리 위 → 전신으로 통과). 그림값만 든다."""
+        for index in cuts:
+            cut = sb.cut(index)
+            cut.camera_distance = WIDER[cut.camera_distance]
+            if WIDER_NOTE not in cut.image_prompt:
+                cut.image_prompt = f"{cut.image_prompt} {WIDER_NOTE}"
+        self.job.save_storyboard(sb)
+        await self.build_images(sb, only=cuts, force=True)
+        self.approve(sb, cuts)
 
     async def narrate(
         self, sb: Storyboard, *, only: set[int] | None = None, force: bool = False
@@ -195,6 +225,7 @@ class Pipeline:
         *,
         confirm: Callable[[CostEstimate, Decimal], bool] | None = None,
         force: bool = False,
+        redraw_blocked: bool = False,
     ) -> Path:
         """승인된 컷 → 영상 → 나레이션 → final.mp4. 비싼 구간.
 
@@ -203,7 +234,7 @@ class Pipeline:
         """
         thumbnail = asyncio.create_task(self.thumbnail(sb, force=force))
         try:
-            await self.render(sb, force=force, confirm=confirm)
+            await self.render(sb, force=force, confirm=confirm, redraw_blocked=redraw_blocked)
         except BaseException:
             thumbnail.cancel()
             raise
