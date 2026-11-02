@@ -20,7 +20,7 @@ from ..config import Settings
 from ..job import JobStore
 from ..models import Cut, Stage, Storyboard
 from ..prompts import PromptLibrary
-from ..providers.base import ImageProvider, LookProvider, PlaceCheck, SeenFrame
+from ..providers.base import CastCheck, ImageProvider, LookProvider, PlaceCheck, SeenFrame
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +40,14 @@ def image_problems(sb: Storyboard, cut: Cut, seen: SeenFrame) -> list[str]:
     problems = []
     if len(people) < len(cast):
         problems.append(f"Only {len(people)} person(s) are visible but the scene needs {len(cast)}.")
+    # 사람이 넘치는 경우: 화면 밖에 있어야 할 상대 대신 주인공 복제가 가장자리에 그려지는 일이 있다(2026-10 졸업식 컷 관측).
+    if len(people) > len(cast):
+        problems.append(f"{len(people)} people are visible but the scene has only {len(cast)}. Remove the extra "
+                        "person completely; nobody else appears, not even partly at the edge of the frame.")
+    if seen.duplicate_person:
+        problems.append("The same person appears twice. Each person appears only once; never draw a copy of them.")
+    if seen.unknown_person:
+        problems.append("Someone who is not in the cast is visible. Only the cast members appear.")
     want = [voice_gender(f"{p.voice} {p.appearance}") for p in (sb.character(m.name) for m in cast) if p]
     for g, word in (("m", "man"), ("f", "woman")):
         # 성별을 모른다고 답한 사람은 어느 쪽으로든 셀 수 있다 — 확실히 다를 때만 틀렸다고 본다.
@@ -104,6 +112,9 @@ async def generate_cut_images(
         loc = sb.location(cut.location)
         place_sheet = location_sheets.get(cut.location) if cut.location else None
         place = PlaceCheck(sheet=place_sheet, description=loc.description) if loc and place_sheet else None
+        cast_check = CastCheck(people=[
+            (p.appearance.split(".")[0].strip() if (p := sb.character(m.name)) else m.name) for m in sb.visible_cast(cut)
+        ])
         moment = moment_shot(sb, cut)
         moment_image = job.cut_image(moment) if moment else None
         prompt, references = cut_image_request(
@@ -134,7 +145,7 @@ async def generate_cut_images(
             if look is None:
                 break
             try:
-                seen = await look.look(image=dest, place=place)
+                seen = await look.look(image=dest, place=place, cast=cast_check)
             except Exception as exc:
                 log.warning("컷 %d 그림 확인 실패 — 그대로 쓴다: %s", cut.index, exc)
                 break

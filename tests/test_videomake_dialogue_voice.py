@@ -303,9 +303,10 @@ def test_wrong_cut_image_is_redrawn_with_the_problem(tmp_path, monkeypatch):
         def __init__(self):
             self.n = 0
 
-        async def look(self, *, image, place=None):
+        async def look(self, *, image, place=None, cast=None):
             self.n += 1  # 첫 그림만 카메라를 본다
-            return SeenFrame(people=[SeenPerson(gender="", height_ratio=0.6)] * 2, looks_at_camera=self.n == 1)
+            n_people = len(cast.people) if cast else 2  # 컷 인원만큼 보인다고 답한다
+            return SeenFrame(people=[SeenPerson(gender="", height_ratio=0.6)] * n_people, looks_at_camera=self.n == 1)
 
     class _Image(fake.FakeImage):
         def __init__(self):

@@ -63,3 +63,13 @@ def test_places_have_landmarks_seen_from_every_side():
 def test_only_face_close_ups_are_banned_now():
     assert lint_image_prompt("An over-the-shoulder shot past his colleague toward Minji.") == []
     assert lint_image_prompt("An extreme close-up of her face.")
+
+
+def test_extra_or_cloned_person_in_a_cut_image_is_redrawn():
+    sb = _sb()
+    cut = sb.cuts[0]  # 한 사람 컷
+    two = SeenFrame(people=[SeenPerson(gender="m", height_ratio=0.5), SeenPerson(gender="m", height_ratio=0.4)],
+                    looks_at_camera=False)
+    assert any("Remove the extra person" in p for p in image_problems(sb, cut, two))
+    clone = _seen(duplicate_person=True)
+    assert any("appears twice" in p for p in image_problems(sb, cut, clone))
