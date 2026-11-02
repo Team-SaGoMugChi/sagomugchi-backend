@@ -153,7 +153,8 @@ class VideoJobManager:
     def _progress(self, job_id: str) -> tuple[VideoStage, float]:
         """산출물 개수로 단계·진행률을 계산한다.
 
-        비중은 실제 소요 시간 기준이다. Veo 렌더가 대부분을 차지한다.
+        비중은 실제 소요 시간 기준이다(2026-11 실측 20분: 그림 그리기가 다시 그리기·요청 한도로 가장 오래,
+        영상은 동시에 끝나 2분). 앱은 이 값을 바닥으로 삼아 다음 단계 직전까지 천천히 올려 보여준다.
         """
         job = self._store(job_id)
         if not job.storyboard_path.exists():
@@ -165,18 +166,21 @@ class VideoJobManager:
         def count(path_of) -> int:
             return sum(1 for i in range(1, n + 1) if path_of(i).exists())
 
-        images = count(job.cut_image) + int(job.character_sheet_path.exists())
-        if images < n + 1:
-            return "images", 0.05 + 0.25 * images / (n + 1)
+        # 시트(주인공·조연·장소)도 그림값이 드는 한 장이다. 조연·장소 수는 시트 폴더에 생긴 만큼 센다.
+        sheets = int(job.character_sheet_path.exists()) + sum(1 for _ in job.dir.glob("sheets/*.png"))
+        total_sheets = 1 + len(storyboard.locations) + len(storyboard.on_screen_supporting)
+        images = count(job.cut_image)
+        if images < n:
+            return "images", 0.05 + 0.65 * (min(sheets, total_sheets) + images) / (total_sheets + n)
         videos = count(job.cut_video)
         if videos < n:
-            return "videos", 0.30 + 0.60 * videos / n
+            return "videos", 0.70 + 0.22 * videos / n
         # 대사 컷은 Veo가 직접 말하고 무음 컷은 목소리가 없어 나레이션 파일이 없다.
         narrated = [c.index for c in storyboard.cuts if c.narration]
         done = sum(1 for i in narrated if job.cut_narration(i).exists())
         if done < len(narrated):
-            return "narration", 0.90 + 0.05 * done / len(narrated)
-        return "compose", 0.95
+            return "narration", 0.92 + 0.04 * done / len(narrated)
+        return "compose", 0.96
 
 
 @lru_cache

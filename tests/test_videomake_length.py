@@ -144,7 +144,7 @@ def test_job_progress_counts_cuts_from_storyboard(tmp_path):
     stage, progress = manager._progress(job_id)
 
     # 설정값이 아니라 스토리보드의 컷 5개를 기준으로 이미지 단계가 끝났다고 본다.
-    assert (stage, progress) == ("videos", 0.30)
+    assert (stage, progress) == ("videos", 0.70)
 
 
 def test_eight_second_cut_with_four_second_narration_is_fed_back():
