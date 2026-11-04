@@ -15,6 +15,7 @@ videomake 파이프라인은 수 분이 걸리므로 요청 한 번으로 기다
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from dataclasses import dataclass
 from functools import lru_cache
@@ -56,6 +57,10 @@ def to_diary_input(req: VideoJobRequest) -> DiaryInput:
         protagonist_name=req.protagonist_name,
         handoff=req.diary_handoff,
     )
+
+
+_JOB_ID = re.compile(r"[0-9a-f]{32}")
+_INTERRUPTED = "서버가 다시 시작돼 영상 만들기가 멈췄어요. 다시 시도해주세요."
 
 
 @dataclass
@@ -107,7 +112,7 @@ class VideoJobManager:
             state.status, state.error = "failed", _FAILED_DEFAULT
 
     def status(self, job_id: str) -> VideoJobStatus | None:
-        state = self._jobs.get(job_id)
+        state = self._state(job_id)
         if state is None:
             return None
         stage, progress = self._progress(job_id)
@@ -127,25 +132,44 @@ class VideoJobManager:
         )
 
     def final_path(self, job_id: str) -> Path | None:
-        state = self._jobs.get(job_id)
+        state = self._state(job_id)
         if state is None or state.status != "done":
             return None
         path = self._store(job_id).final_path
         return path if path.exists() else None
 
     def thumbnail_path(self, job_id: str) -> Path | None:
-        state = self._jobs.get(job_id)
+        state = self._state(job_id)
         if state is None or state.status != "done":
             return None
         path = self._store(job_id).thumbnail_path
         return path if path.exists() else None
 
     def subtitles_path(self, job_id: str) -> Path | None:
-        state = self._jobs.get(job_id)
+        state = self._state(job_id)
         if state is None or state.status != "done":
             return None
         path = self._store(job_id).subtitles_path
         return path if path.exists() else None
+
+    def _state(self, job_id: str) -> _JobState | None:
+        """메모리에 없는 작업은 디스크에서 찾는다.
+
+        작업 목록은 메모리에만 있어 서버를 다시 켜면 다 끝난 영상도 404가 났다(2026-11 관측).
+        완성본이 있으면 끝난 작업으로, 폴더만 있으면 중단된 작업으로 본다.
+        """
+        state = self._jobs.get(job_id)
+        if state is not None or not _JOB_ID.fullmatch(job_id):
+            return state
+        # JobStore는 만들 때 폴더를 만든다 — 없는 작업은 그 전에 거른다.
+        if not (Path(self.settings.jobs_dir) / job_id).is_dir():
+            return None
+        if self._store(job_id).final_path.exists():
+            state = _JobState(status="done")
+        else:
+            state = _JobState(status="failed", error=_INTERRUPTED)
+        self._jobs[job_id] = state
+        return state
 
     def _store(self, job_id: str) -> JobStore:
         return JobStore(self.settings.jobs_dir, job_id)
