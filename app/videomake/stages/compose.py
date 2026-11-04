@@ -13,6 +13,7 @@ Veo는 오디오 생성을 끌 수 없다(Developer API에 generate_audio가 없
 
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 import subprocess
@@ -27,6 +28,7 @@ from ..errors import VideomakeError
 from ..job import JobStore
 from ..models import Cut, EditPlan, Stage, Storyboard
 from .dialogue_voice import _load_mono, speech_segments
+from .narration_flow import continues_into_next
 from .subtitles import write_subtitles
 
 log = logging.getLogger(__name__)
@@ -119,21 +121,34 @@ def edit_lengths(
     voice_of: dict[int, Path],
     hold: set[int],
     delay: float,
+    script_ends: dict[int, float] | None = None,
+    clean_until: dict[int, float] | None = None,
 ) -> list[float]:
     """컷마다 최종 영상에서 쓸 길이(초). 목소리가 끝난 뒤의 정적을 잘라낸다(쇼츠 편집).
 
     자르지 않는 컷: 무음 컷(화면만 보여주는 동작), 편집 계획이 고른 hold 컷, 나레이션이
     이 컷보다 길어 뒤 컷까지 이어지는 컷. 샷을 나눈 컷은 목소리가 끝날 때 시작한 샷까지만 남긴다.
     voice_of: 대사 컷마다 실제로 나가는 소리(더빙 파일 또는 영상).
+    script_ends: 대본 뒤에 Veo가 말을 덧붙인 컷 — 대본이 끝나는 시각. 덧붙인 말은 늘 잘라 낸다(hold여도).
+    clean_until: 영상 도중 화면 끝에 낯선 사람이 들어오는 컷 — 그 앞까지만 쓴다(목소리는 끝까지 남긴다).
     """
+    script_ends = script_ends or {}
+    clean_until = clean_until or {}
     lengths: list[float] = []
-    for cut in sb.cuts:
+    for pos, cut in enumerate(sb.cuts):
         full = float(cut.duration_seconds)
-        need = _voice_end(cut, narrations, voice_of, delay)
-        if not settings.tight_edit or need is None or cut.index in hold:
+        need = script_ends.get(cut.index) or _voice_end(cut, narrations, voice_of, delay)
+        if cut.index in script_ends:
+            # 덧붙인 말이 곧바로 이어져서 평소 여유(edit_tail_seconds)를 두면 첫 글자가 들렸다.
+            full = min(full, need + settings.edit_flow_tail_seconds)
+        if cut.index in clean_until:
+            full = min(full, max(clean_until[cut.index], need or 0.0, settings.edit_min_cut_seconds))
+        # 쉼표로 끝난 나레이션이 다음 목소리로 이어지면 hold 컷이어도 짧게 넘긴다.
+        flows = continues_into_next(cut) and pos + 1 < len(sb.cuts) and not sb.cuts[pos + 1].is_silent
+        if not settings.tight_edit or need is None or (cut.index in hold and not flows):
             lengths.append(full)
             continue
-        end = need + settings.edit_tail_seconds
+        end = need + (settings.edit_flow_tail_seconds if flows else settings.edit_tail_seconds)
         floor = settings.edit_min_cut_seconds
         # 샷을 나눈 컷: 목소리가 끝날 때 이미 시작한 샷은 잠깐은 보여 주고(번쩍임 방지),
         # 아직 시작하지 않은 샷은 버린다 — 샷을 보여주려고 정적을 남기지 않는다.
@@ -144,6 +159,15 @@ def edit_lengths(
             at += shot.seconds
         lengths.append(round(min(full, max(floor, end)), 3))
     return lengths
+
+
+def _check_value(job: JobStore, index: int, name: str, key: str) -> float | None:
+    """cuts/NN/<name>(검사 기록)의 숫자 값. 없으면 None."""
+    path = job.cut_dir(index) / name
+    if not path.exists():
+        return None
+    value = json.loads(path.read_text(encoding="utf-8")).get(key)
+    return float(value) if isinstance(value, (int, float)) else None
 
 
 def _voice_end(cut: Cut, narrations: dict[int, Path], voice_of: dict[int, Path], delay: float) -> float | None:
@@ -203,6 +227,10 @@ def compose(
     seconds = edit_lengths(
         sb, settings=settings, narrations=narrations, voice_of=voice_of,
         hold=set(plan.hold_cuts), delay=delay_ms / 1000,
+        script_ends={i: t for i in voice_of if (t := _check_value(job, i, "voice_check.json", "script_end"))
+                     and i not in dialogues},
+        clean_until={c.index: t for c in sb.cuts
+                     if (t := _check_value(job, c.index, "video_check.json", "clean_until")) is not None},
     )
     starts = cut_starts(seconds)
     total = round(starts[-1] + seconds[-1], 3) if seconds else 0.0
@@ -293,12 +321,12 @@ def compose(
     first_audio = len(videos)
     if audios:
         labels = []
-        for k, (_, delay_ms, gain) in enumerate(audios):
+        for k, (_, at_ms, gain) in enumerate(audios):
             label = f"a{k}"
             filters.append(
                 f"[{first_audio + k}:a]aresample={AUDIO_RATE},"
                 f"aformat=channel_layouts=stereo,volume={gain}dB,"
-                f"adelay={delay_ms}:all=1[{label}]"
+                f"adelay={at_ms}:all=1[{label}]"
             )
             labels.append(f"[{label}]")
         filters.append(

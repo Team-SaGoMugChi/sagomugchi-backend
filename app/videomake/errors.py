@@ -25,5 +25,13 @@ class ProviderError(VideomakeError):
     """외부 생성 모델 호출 실패."""
 
 
+class VideoBlocked(ProviderError):
+    """영상 AI가 안전 필터로 컷을 거절했다. 과금되지 않으며 그림을 바꾸면 통과할 수 있다."""
+
+    def __init__(self, message: str, *, cuts: set[int]) -> None:
+        super().__init__(message)
+        self.cuts = cuts
+
+
 class RenderTimeout(ProviderError):
     """long-running operation이 제한 시간 안에 끝나지 않았다."""

@@ -303,9 +303,10 @@ def test_wrong_cut_image_is_redrawn_with_the_problem(tmp_path, monkeypatch):
         def __init__(self):
             self.n = 0
 
-        async def look(self, *, image, place=None):
+        async def look(self, *, image, place=None, cast=None):
             self.n += 1  # 첫 그림만 카메라를 본다
-            return SeenFrame(people=[SeenPerson(gender="", height_ratio=0.6)] * 2, looks_at_camera=self.n == 1)
+            n_people = len(cast.people) if cast else 2  # 컷 인원만큼 보인다고 답한다
+            return SeenFrame(people=[SeenPerson(gender="", height_ratio=0.6)] * n_people, looks_at_camera=self.n == 1)
 
     class _Image(fake.FakeImage):
         def __init__(self):
@@ -330,3 +331,62 @@ def test_wrong_cut_image_is_redrawn_with_the_problem(tmp_path, monkeypatch):
     checks = [json.loads(p.read_text(encoding="utf-8")) for p in pipe.job.dir.glob("cuts/*/image_check.json")]
     assert sorted(len(c) for c in checks) == [1, 2]  # 다시 그린 컷은 검사 기록이 두 번
     assert any(c[0]["problems"] for c in checks)
+
+
+def test_line_goes_on_the_first_segment_when_veo_adds_words_after_the_script():
+    """Veo가 대본을 먼저 말하고 더 길게 덧붙였다 — TTS는 덧붙인 말 자리가 아니라 첫 구간에 놓인다."""
+    from app.videomake.stages.dialogue_voice import script_prefix_ok
+
+    segments = [(0.4, 1.9), (2.5, 5.6)]
+    assert plan_slots(segments, [1.5], 6)[0].start == 2.5  # 예전: 긴 구간(덧붙인 말)에 놓였다
+    assert plan_slots(segments, [1.5], 6, script_first=True)[0].start == 0.4
+    assert script_prefix_ok("과제 주제를 바꿔도 될까요?", "과제 주제를 바꿔도 될까요? 사장님한테 여쭤볼게요")
+    assert not script_prefix_ok("과제 주제를 바꿔도 될까요?", "음 그러니까 과제 주제를 바꿔도")
+
+
+def test_script_end_is_estimated_when_added_words_follow_without_a_pause():
+    from app.videomake.stages.dialogue_voice import estimate_script_end
+
+    # "그런 뜻 아니었어 미안해"(10글자) + "진짜"(2글자)를 쉬지 않고 3.0초에 말했다.
+    assert estimate_script_end([(1.0, 4.0)], "그런 뜻 아니었어. 미안해", "그런 뜻 아니었어. 미안해 진짜.") == 3.6
+    assert estimate_script_end([(1.0, 4.0)], "미안해", "미안해") is None
+
+
+def test_clipped_listen_missing_the_last_syllable_still_matches_the_script():
+    from app.videomake.stages.dialogue_voice import script_prefix_ok
+
+    assert script_prefix_ok("과제 주제를 바꿔도 될까요?", "과제 주제를 바꿔도 될까?")
+    assert not script_prefix_ok("과제 주제를 바꿔도 될까요?", "과제 주제를")
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg 필요")
+def test_wrong_veo_line_is_rendered_again_instead_of_dubbed(tmp_path, monkeypatch):
+    """Veo가 대사를 틀리면 TTS로 바꾸지 않고 그 컷 영상을 다시 만든다. 두 번째에 맞게 말하면 Veo 목소리를 쓴다."""
+    from app.videomake.providers.base import HeardSpeech
+
+    class _WrongOnce:
+        def __init__(self):
+            self.calls = 0
+
+        async def listen(self, *, audio):
+            self.calls += 1
+            return HeardSpeech(text="뭐라고" if self.calls == 1 else "왜 늦었어", voice="f")
+
+    class _CountingVideo(fake.FakeVideo):
+        def __init__(self):
+            super().__init__()
+            self.submits = 0
+
+        async def submit(self, **kwargs):
+            self.submits += 1
+            return await super().submit(**kwargs)
+
+    pipe = _pipeline(tmp_path, monkeypatch)
+    video = _CountingVideo()
+    pipe.p = pipe.p.__class__(**{**pipe.p.__dict__, "listen": _WrongOnce(), "video": video})
+    final = _finish(pipe)
+
+    assert final.exists()
+    assert video.submits == 3  # 두 컷 + 틀린 대사 컷 1번 다시
+    assert not pipe.job.cut_dialogue(2).exists()  # TTS 더빙 없음
+    assert '"keep_veo_voice": true' in (pipe.job.cut_dir(2) / "voice_check.json").read_text(encoding="utf-8")

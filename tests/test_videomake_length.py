@@ -144,7 +144,7 @@ def test_job_progress_counts_cuts_from_storyboard(tmp_path):
     stage, progress = manager._progress(job_id)
 
     # 설정값이 아니라 스토리보드의 컷 5개를 기준으로 이미지 단계가 끝났다고 본다.
-    assert (stage, progress) == ("videos", 0.30)
+    assert (stage, progress) == ("videos", 0.70)
 
 
 def test_eight_second_cut_with_four_second_narration_is_fed_back():
@@ -191,3 +191,19 @@ def test_prompt_ties_length_to_content_and_ending_to_last_emotion():
     assert "**4초(기본)**: 대부분의 컷" in system
     assert "일기의 마지막 감정" in system
     assert "가장 넓은 샷" not in system
+
+
+def test_status_survives_server_restart(tmp_path):
+    from app.videomake.config import Settings as VSettings
+
+    st = VSettings(_env_file=None, jobs_dir=tmp_path)
+    done, broken = "a" * 32, "b" * 32
+    (tmp_path / done).mkdir()
+    JobStore(tmp_path, done).final_path.write_bytes(b"mp4")
+    (tmp_path / broken).mkdir()
+    fresh = VideoJobManager(st)  # 다시 켠 서버: 메모리는 비어 있다
+    assert fresh.status(done).status == "done"
+    assert fresh.final_path(done) is not None
+    assert fresh.status(broken).status == "failed"
+    assert fresh.status("c" * 32) is None
+    assert fresh.status("../etc") is None

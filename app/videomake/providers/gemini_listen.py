@@ -43,7 +43,7 @@ class GeminiListenProvider:
             )
 
         try:
-            resp = await retry_on_rate_limit(call, what="대사 듣기")
+            resp = await retry_on_rate_limit(call, what="대사 듣기", timeout=90)
             data = parse_heard(resp.text)
         except Exception as exc:
             raise ProviderError(f"대사 듣기 실패 ({self._model}): {exc}") from exc

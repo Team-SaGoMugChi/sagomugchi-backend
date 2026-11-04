@@ -29,13 +29,26 @@ def is_rate_limited(exc: Exception) -> bool:
     return "429" in text or "RESOURCE_EXHAUSTED" in text
 
 
+# 요청 한 번의 제한 시간(초). 응답 없는 Gemini 검사 요청 하나에 영상 만들기가 7시간 멈췄다(2026-11-04,
+# 네트워크가 잠깐 끊긴 뒤). 시나리오(GPT)는 몇 분 걸릴 수 있어 넉넉히 둔다. 넘기면 다시 시도한다.
+CALL_TIMEOUT_SECONDS = 300.0
+
+
 async def retry_on_rate_limit(
-    call: Callable[[], Awaitable[R]], *, what: str, max_retries: int = 5
+    call: Callable[[], Awaitable[R]], *, what: str, max_retries: int = 5,
+    timeout: float | None = None,
 ) -> R:
-    """Vertex의 공유 용량 429는 흔하고 대개 일시적이다. 지수 백오프로 넘긴다."""
+    """Vertex의 공유 용량 429는 흔하고 대개 일시적이다. 지수 백오프로 넘긴다.
+    응답이 제한 시간(timeout, 기본 CALL_TIMEOUT_SECONDS) 안에 안 오면 그것도 다시 시도한다."""
+    limit = CALL_TIMEOUT_SECONDS if timeout is None else timeout
     for attempt in range(1, max_retries + 1):
         try:
-            return await call()
+            return await asyncio.wait_for(call(), limit)
+        except asyncio.TimeoutError:
+            if attempt == max_retries:
+                raise
+            log.warning("%s 응답이 %.0f초 안에 오지 않아 다시 묻는다 (%d/%d)", what, limit, attempt, max_retries)
+            continue
         except Exception as exc:
             if not is_rate_limited(exc) or attempt == max_retries:
                 raise
@@ -147,12 +160,23 @@ class SeenFrame(BaseModel):
 
     people: list[SeenPerson]
     looks_at_camera: bool
+    split_frame: bool = False  # 한 장면이 아니라 위아래·좌우 칸으로 나뉘어 그려졌다.
+    # 주인공 바로 맞은편·옆에 아무도 없는 빈 의자·빈 자리가 보인다(혼자 보이는 대사 컷에서 상대가 사라진 것처럼 보임).
+    empty_seat: bool | None = None
+    # 카메라 가까이 누군가의 뒷모습(뒷머리·어깨·팔)이 걸쳐 있다(어깨너머 샷). 혼자 보이는 대사 컷에서는 안 된다.
+    foreground_back: bool | None = None
+    # 창밖·빛으로 본 시간대: "day" / "night" / ""(모름·창이 안 보임)
+    time_of_day: str = ""
     # 장소 확인(PlaceCheck를 줬을 때만): 장소 시트와 같은 곳인가, 카메라가 어느 쪽을 보나.
     same_place: bool | None = None
     facing: str = ""  # "entrance" / "far" / "left" / "right" / ""(모름)
     # 인물 확인(CastCheck를 줬을 때만): 같은 사람이 둘로 나왔나, 명단에 없는 사람이 있나.
     duplicate_person: bool | None = None
     unknown_person: bool | None = None
+    # 화면 끝에 반쯤 잘린 채 카메라 가까이 있는 낯선 사람(흐린 얼굴 반쪽 등). 손님이 있는 곳에서도 잡는다.
+    cut_off_person: bool | None = None
+    # 자리 확인(PlaceCheck.seats를 줬을 때만): 정해진 자리가 아닌 곳에 앉은 사람 이름.
+    wrong_seat: list[str] = []
 
 
 class PlaceCheck(BaseModel):
@@ -160,6 +184,7 @@ class PlaceCheck(BaseModel):
 
     sheet: Path
     description: str
+    seats: list[str] = []  # "할아버지: the center honor table" — 컷 지시에 적힌 앉는 자리
 
 
 class TimedFrame(BaseModel):

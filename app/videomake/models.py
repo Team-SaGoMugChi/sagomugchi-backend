@@ -87,6 +87,14 @@ class LocationProfile(BaseModel):
             "시간대·빛·인물은 쓰지 않는다. 그 장소의 모든 컷 그림 프롬프트에 그대로 들어간다."
         )
     )
+    background_people: str = Field(
+        default="",
+        description=(
+            "이 장소에 늘 있는 이름 없는 사람들(영어). 잔치·식당·교실·지하철처럼 사람이 있어야 "
+            "자연스러운 곳만 쓴다. 예: 'about ten relatives seated at the other round tables, chatting "
+            "and eating'. 집·혼자 있는 방처럼 비어 있는 게 자연스러우면 빈 문자열."
+        ),
+    )
 
 
 class CastMember(BaseModel):

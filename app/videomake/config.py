@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     planner: Literal["single", "team"] = "single"
     # 제작팀 모드의 촬영감독 단계: 나레이션·무음 컷 일부를 한 번 생성 안에서 2~3개 샷으로 나눈다.
     shot_split: bool = True
+    narration_polish: bool = True  # 나레이션 전체를 한 번 더 보며 이어지게 다듬는다
     # 영상 전용 OpenAI 키(VIDEOMAKE_OPENAI_API_KEY). 팀 결정으로 키를 용도별로 나눈다 —
     # 상담의 LLM_API_KEY는 읽지 않는다. 사용량·비용을 기능별로 따로 보기 위함.
     openai_api_key: str = ""
@@ -131,6 +132,9 @@ class Settings(BaseSettings):
     # Veo 목소리는 입 모양과 훨씬 잘 맞는다(립싱크 LSE-C 원래 목소리 2.2~3.5 vs TTS 1.5~2.2, 2026-10 측정).
     # "tts"는 모든 대사 컷을 인물별 TTS로, "veo"는 확인 없이 Veo 목소리 그대로.
     dialogue_voice: Literal["auto", "tts", "veo"] = "auto"
+    # "auto"에서 Veo 목소리가 틀린 대사 컷을 Veo로 다시 만드는 횟수(컷마다, 그만큼 과금 — 6초 컷 약 $0.6).
+    # 다시 만들어도 계속 틀리면 그때만 TTS로 바꾼다. TTS 목소리는 어색하다는 피드백(2026-11)으로 마지막 수단이다.
+    veo_voice_redo: int = 2
     # 영상 provider. "veo"(기본)는 Google Vertex Veo. "evolink"는 evolink.ai로 다른 회사 모델을
     # 부른다(providers/evolink_video.py의 MODELS — Grok Imagine 등). dialogue_video_provider="veo"면
     # 대사 컷만 Veo로 보낸다(입 모양이 맞는 모델 + 싼 모델 섞어 쓰기).
@@ -165,7 +169,7 @@ class Settings(BaseSettings):
     fish_model: str = "s2.1-pro-free"
     # Fish 공개 목소리 "20대 여자_나긋나긋 쇼츠"(한국어 사용 6만 회, 2026-10). 연예인 복제 목소리는 쓰지 않는다.
     fish_voice_id: str = "4e118bfbb83e401c84699c09b5f08257"
-    fish_speed: float = 1.0
+    fish_speed: float = 0.95  # 1.0은 살짝 급하게 들렸다(2026-11 사용자 의견)
 
     # --- 편집 ---------------------------------------------------------------
     # 목소리가 끝난 뒤 남는 정적을 잘라 컷을 줄인다(쇼츠 편집 관행: 0.3~0.5초 넘는 공백은 자른다).
@@ -173,6 +177,7 @@ class Settings(BaseSettings):
     tight_edit: bool = True
     # 목소리가 끝난 뒤 남기는 여유. 0.35초는 다급하게 느껴졌고 1.1초로 정했다(2026-10 사용자 비교).
     edit_tail_seconds: float = 1.1
+    edit_flow_tail_seconds: float = 0.4  # 쉼표로 끝나 다음 컷으로 말이 이어질 때
     edit_min_cut_seconds: float = 2.2
     narration_delay_ms: int = 300  # 컷이 시작하고 목소리가 들어오기까지
 
@@ -181,7 +186,7 @@ class Settings(BaseSettings):
     # 목소리와 장면 소리만 둔다. 깔 때는 목소리 아래에서 작게 들리게 한다.
     music: bool = True
     music_model: str = "lyria-002"
-    music_level_db: float = -34.0  # 음악 크기(dBFS RMS). 나레이션은 약 -15dB
+    music_level_db: float = -44.0  # 음악 크기(dBFS RMS). 나레이션은 약 -15dB. -34는 컸다(2026-11 사용자 의견)
 
     # --- 비용 가드 ---------------------------------------------------------
     max_cost_usd: Decimal = Decimal("6.00")
