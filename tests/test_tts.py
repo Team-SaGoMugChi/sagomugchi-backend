@@ -23,9 +23,22 @@ def test_four_voices_forwarded_without_persistence(client, speaker):
     assert result.status_code == 200
     assert base64.b64decode(result.json()["audio_base64"]) == b"audio"
     assert post.call_args.kwargs["data"]["speaker"] == speaker
+    assert post.call_args.kwargs["data"]["speed"] == "0"
 
 
-@pytest.mark.parametrize("payload", [{"text": " "}, {"text": "a" * 2001}, {"text": "hello", "speaker": "unknown"}])
+def test_speed_forwarded_when_given(client):
+    settings = get_settings().model_copy(update={"clova_voice_client_id": "test-id", "clova_voice_client_secret": "test-secret"})
+    response = httpx.Response(200, content=b"audio", headers={"content-type": "audio/mpeg"}, request=httpx.Request("POST", "https://example.test"))
+    with patch("app.api.routes.tts.get_settings", return_value=settings), patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=response) as post:
+        result = client.post("/tts", json={"text": "안녕하세요", "speed": -2})
+    assert result.status_code == 200
+    assert post.call_args.kwargs["data"]["speed"] == "-2"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [{"text": " "}, {"text": "a" * 2001}, {"text": "hello", "speaker": "unknown"}, {"text": "hello", "speed": -6}, {"text": "hello", "speed": 6}],
+)
 def test_invalid_input_rejected(client, payload):
     assert client.post("/tts", json=payload).status_code == 422
 
