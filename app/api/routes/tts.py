@@ -13,6 +13,8 @@ router = APIRouter(prefix="/tts", tags=["tts"])
 class SpeechRequest(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
     speaker: Literal["nara", "njinho", "nminyoung", "ndonghyun"] = "nara"
+    # CLOVA Voice speed: -5 (fastest) to 5 (slowest); 0 keeps the provider default.
+    speed: int = Field(default=0, ge=-5, le=5)
 
     @field_validator("text")
     @classmethod
@@ -35,7 +37,7 @@ async def synthesize(payload: SpeechRequest):
                     "X-NCP-APIGW-API-KEY-ID": settings.clova_voice_client_id,
                     "X-NCP-APIGW-API-KEY": settings.clova_voice_client_secret,
                 },
-                data={"text": payload.text, "speaker": payload.speaker, "format": "mp3", "speed": "0"},
+                data={"text": payload.text, "speaker": payload.speaker, "format": "mp3", "speed": str(payload.speed)},
             )
             response.raise_for_status()
     except httpx.HTTPError:
