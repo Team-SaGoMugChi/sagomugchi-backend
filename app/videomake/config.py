@@ -132,6 +132,9 @@ class Settings(BaseSettings):
     # Veo 목소리는 입 모양과 훨씬 잘 맞는다(립싱크 LSE-C 원래 목소리 2.2~3.5 vs TTS 1.5~2.2, 2026-10 측정).
     # "tts"는 모든 대사 컷을 인물별 TTS로, "veo"는 확인 없이 Veo 목소리 그대로.
     dialogue_voice: Literal["auto", "tts", "veo"] = "auto"
+    # "auto"에서 Veo 목소리가 틀린 대사 컷을 Veo로 다시 만드는 횟수(컷마다, 그만큼 과금 — 6초 컷 약 $0.6).
+    # 다시 만들어도 계속 틀리면 그때만 TTS로 바꾼다. TTS 목소리는 어색하다는 피드백(2026-11)으로 마지막 수단이다.
+    veo_voice_redo: int = 2
     # 영상 provider. "veo"(기본)는 Google Vertex Veo. "evolink"는 evolink.ai로 다른 회사 모델을
     # 부른다(providers/evolink_video.py의 MODELS — Grok Imagine 등). dialogue_video_provider="veo"면
     # 대사 컷만 Veo로 보낸다(입 모양이 맞는 모델 + 싼 모델 섞어 쓰기).

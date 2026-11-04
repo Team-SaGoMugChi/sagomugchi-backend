@@ -273,3 +273,15 @@ def test_subtitles_follow_narration_when_music_is_laid(tmp_path, monkeypatch):
     asyncio.run(run())
     first = job.subtitles_path.read_text(encoding="utf-8").split("\n")[3]
     assert first.startswith("00:00:00.150 -->")  # 첫 컷 시작 + 나레이션 지연 150ms
+
+
+def test_added_words_and_late_intruders_are_cut_away(tmp_path):
+    """대본 뒤 덧붙인 말은 hold여도 잘라 내고, 화면 끝에 사람이 들어오기 전까지만 쓴다(목소리는 남긴다)."""
+    sb = _sb([(6, "n"), (6, "n"), (6, "n")])
+    narr = {i: _wav(tmp_path / f"n{i}.wav", 1.0) for i in (1, 2, 3)}
+    lengths = edit_lengths(sb, settings=_settings(tmp_path), narrations=narr, voice_of={}, hold={1}, delay=0.15,
+                           script_ends={1: 2.0}, clean_until={2: 0.5, 3: 4.0})
+    assert lengths[0] == pytest.approx(2.0 + _settings(tmp_path).edit_flow_tail_seconds)
+    tail = _settings(tmp_path).edit_tail_seconds
+    assert lengths[1] == pytest.approx(max(1.15 + tail, _settings(tmp_path).edit_min_cut_seconds))  # 목소리는 끝까지
+    assert lengths[2] <= 4.0

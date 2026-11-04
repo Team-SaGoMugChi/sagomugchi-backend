@@ -62,7 +62,9 @@ END_MARGIN_SECONDS = 0.15
 SPEECH_LEVEL_DB = -13.0  # 나레이션(Gemini TTS)이 말할 때의 크기와 비슷하게
 PEAK_LIMIT_DB = -1.0
 MAX_GAIN_DB = 12.0
-VEO_VOICE_GAIN = 0.015  # 바꾼 구간의 Veo 말소리를 이만큼으로 줄인다(약 -36dB)
+# 바꾼 구간의 Veo 말소리는 끈다. 0.015(약 -36dB)로 줄이기만 했더니 덧붙인 말이 작게 들린 뒤 TTS가
+# 나와 같은 말을 두 번 하는 것처럼 들렸다(2026-11 강의실 일기 컷 2).
+VEO_VOICE_GAIN = 0.0
 # Veo 목소리 확인 기준 (dialogue_voice="auto")
 # 대본보다 이만큼(또는 대본의 10%) 넘게 길게 들리면 말을 덧붙인 것. 20%로는 대사 끝에 붙은
 # "한기유"(3글자)를 놓쳤다(2026-10-21).
@@ -70,6 +72,8 @@ EXTRA_CHARS_MIN = 2
 EXTRA_CHARS_RATIO = 0.1
 MAX_SCRIPT_ERROR = 0.25  # 글자 오류율이 이보다 크면 대본과 다른 말
 LISTEN_PRICE_PER_CUT = Decimal("0.001")
+CUT_OFF_MARGIN_SECONDS = 0.05  # 말소리가 컷 끝에서 이만큼 안에 닿으면 말이 잘린 것
+CUT_OFF_REASON = "대사가 컷 끝에서 잘림"
 
 
 @dataclass(frozen=True)
@@ -133,6 +137,29 @@ def veo_voice_ok(script: str, heard: HeardSpeech, gender: str | None) -> tuple[b
     return True, f"대본대로 말함(글자 오류율 {error:.0%})"
 
 
+def script_prefix_ok(script: str, heard: str) -> bool:
+    """들은 말의 앞부분이 대본과 같은가(뒤에 말을 덧붙였을 수는 있다). 글자 오류율 기준은 대본과 같다 —
+    잘라 들은 소리는 끝 글자를 놓치기도 한다("될까요?"를 "될까?"로, 2026-11 강의실 컷 2)."""
+    ref, hyp = _letters(script), _letters(heard)
+    if not ref or len(hyp) < len(ref) * (1 - MAX_SCRIPT_ERROR):
+        return False
+    return _edit_distance(ref, hyp[: len(ref)]) / len(ref) <= MAX_SCRIPT_ERROR
+
+
+def estimate_script_end(segments: list[tuple[float, float]], script: str, heard: str) -> float | None:
+    """들은 말 가운데 대본 글자 수만큼 말한 시각(말하는 속도가 고르다고 본다). 구간이 없으면 None."""
+    total = sum(b - a for a, b in segments)
+    ref, hyp = len(_letters(script)), len(_letters(heard))
+    if not segments or total <= 0 or hyp <= ref:
+        return None
+    left = total * ref / hyp
+    for a, b in segments:
+        if left <= b - a:
+            return round(a + left + 0.1, 2)  # 마지막 글자 끝소리
+        left -= b - a
+    return None
+
+
 def spoken_text(text: str) -> str:
     """끝 문장부호가 없으면 마침표를 붙인다. 없으면 TTS가 질문처럼 끝을 올려 읽는 일이 잦다."""
     text = text.strip()
@@ -178,12 +205,19 @@ def pick_take(durations: list[float], target: float | None) -> int:
 
 
 def plan_slots(
-    segments: list[tuple[float, float]], durations: list[float], clip_seconds: float
+    segments: list[tuple[float, float]], durations: list[float], clip_seconds: float,
+    *, script_first: bool = False,
 ) -> list[Slot]:
     """대사 줄마다 놓을 시각과 빠르기. 말소리 구간이 줄 수보다 많으면 긴 구간을 고른다
-    (Veo가 덧붙인 짧은 말은 버려진다). 모자라면 첫 말소리부터 차례로 놓는다."""
+    (Veo가 덧붙인 짧은 말은 버려진다). 모자라면 첫 말소리부터 차례로 놓는다.
+
+    script_first: Veo가 대본을 먼저 말하고 뒤에 말을 덧붙였다 — 앞 구간부터 쓴다. 덧붙인 말이 대본보다
+    길어 TTS가 덧붙인 말 자리에 놓이는 바람에 대사가 늦게 나왔다(2026-11 강의실 일기 컷 2)."""
     n = len(durations)
-    if len(segments) >= n:
+    if script_first and segments:
+        targets = [(a, b - a) for a, b in segments[:n]]
+        targets += [(targets[-1][0], d) for d in durations[len(targets):]]
+    elif len(segments) >= n:
         chosen = sorted(sorted(segments, key=lambda s: s[1] - s[0], reverse=True)[:n])
         targets = [(a, b - a) for a, b in chosen]
     else:
@@ -315,6 +349,82 @@ def _mix(
     _run(args)
 
 
+async def _find_script_end(cut: Cut, script: str, heard_text: str, clip: Path, *,
+                           listen: ListenProvider, job: JobStore) -> float | None:
+    """대본이 끝나는 시각을 찾는다. 후보(글자 수 비율로 어림한 시각, 말소리 구간 끝)마다 그 앞까지만 다시
+    들어 보고, 대본만 들리는 가장 이른 시각. 못 찾으면 None.
+
+    대본과 덧붙인 말 사이에 쉬는 틈이 없으면 말소리 구간으로는 경계를 못 찾아서(2026-11 강의실 컷 2),
+    말하는 속도가 고르다고 보고 글자 수 비율로 어림한 시각도 본다."""
+    segments = speech_segments(_load_mono(clip, cut.duration_seconds))
+    candidates = sorted({*(end for _, end in segments[:-1]),
+                         *([t] if (t := estimate_script_end(segments, script, heard_text)) else [])})
+    for k, end in enumerate(candidates):
+        part = job.cut_dir(cut.index) / f"veo_listen_until{k + 1}.wav"
+        try:
+            _run([_ffmpeg(), "-y", "-i", str(clip), "-t", f"{end + 0.1:.2f}", str(part)])
+            heard = await listen.listen(audio=part)
+            job.record_cost(f"cut{cut.index}_listen_until{k + 1}", LISTEN_PRICE_PER_CUT)
+        except Exception as exc:
+            log.warning("컷 %d 대본 끝을 찾지 못했다: %s", cut.index, exc)
+            return None
+        ref, hyp = _letters(script), _letters(heard.text)
+        if not script_prefix_ok(script, heard.text):
+            continue
+        if len(hyp) - len(ref) <= max(EXTRA_CHARS_MIN, len(ref) * EXTRA_CHARS_RATIO):
+            return end
+        return None  # 이 구간까지 이미 덧붙인 말이 섞였다 — 대본만 떼어 낼 수 없다.
+    return None
+
+
+async def judge_veo_voice(
+    sb: Storyboard, cut: Cut, *, video: Path, listen: ListenProvider, job: JobStore
+) -> dict:
+    """Veo가 만든 대사 목소리를 들어 보고 그대로 써도 되는지 판단해 cuts/NN/voice_check.json에 남긴다.
+
+    영상 단계가 영상을 받자마자 부른다 — 틀렸으면 그 컷 영상을 다시 만든다(TTS로 바꾸지 않는다).
+    keep_veo_voice가 False인 채 남는 것은 다시 만들어도 계속 틀린 컷뿐이다."""
+    record = job.cut_dir(cut.index) / "voice_check.json"
+    script = " ".join(line.text for line in cut.dialogue)
+    genders = {voice_gender(f"{p.voice} {p.appearance}") for p in
+               (sb.character(line.speaker) for line in cut.dialogue) if p}
+    gender = genders.pop() if len(genders) == 1 else None
+    clip = job.cut_dir(cut.index) / "veo_listen.wav"
+    try:
+        _run([_ffmpeg(), "-y", "-i", str(video), "-t", str(cut.duration_seconds),
+              "-vn", "-ar", str(ANALYSIS_RATE), "-ac", "1", str(clip)])
+        heard = await listen.listen(audio=clip)
+        job.record_cost(f"cut{cut.index}_listen", LISTEN_PRICE_PER_CUT)
+    except Exception as exc:
+        log.warning("컷 %d Veo 목소리를 듣지 못했다: %s", cut.index, exc)
+        return {"keep_veo_voice": False, "reason": "들을 수 없음", "retry": False}
+    ok, reason = veo_voice_ok(script, heard, gender)
+    # 말소리가 컷 끝까지 이어지면 대사가 끝나기 전에 컷이 끝난다. Veo가 앞 말과 뒷말 사이를 길게 쉬어
+    # "미안해"를 5.5초에 시작했다(2026-11 카페 컷 4).
+    # 다만 대본이 글자 그대로 다 들렸으면 잘린 게 아니다 — 컷 끝의 주변 소리가 말소리로 잡힌 것이다
+    # (2026-11 카페 컷 4를 이것 때문에 두 번 다시 만들었다).
+    segments = speech_segments(_load_mono(clip, cut.duration_seconds))
+    exact = _letters(heard.text) == _letters(script)
+    if ok and not exact and segments and segments[-1][1] >= cut.duration_seconds - CUT_OFF_MARGIN_SECONDS:
+        ok, reason = False, CUT_OFF_REASON
+    # 대본을 다 말한 뒤 말을 덧붙였으면 대본이 끝나는 곳에서 컷을 자른다(compose). 그러면 다시 만들지 않고
+    # 입 모양이 맞는 Veo 목소리를 그대로 쓴다(2026-11 강의실 컷 2).
+    script_end = None
+    extra = len(_letters(heard.text)) > len(_letters(script))
+    gender_ok = not (gender and heard.voice and heard.voice != gender)
+    if extra and gender_ok and reason != CUT_OFF_REASON and script_prefix_ok(script, heard.text):
+        script_end = await _find_script_end(cut, script, heard.text, clip, listen=listen, job=job)
+        if script_end is not None:
+            ok, reason = True, f"대본 뒤에 덧붙인 말은 {script_end:.2f}초에서 잘라 냄"
+    verdict = {"keep_veo_voice": ok, "reason": reason, "script": script,
+               "heard": heard.text, "heard_voice": heard.voice, "gender": gender,
+               "script_end": script_end, "retry": not ok}
+    record.write_text(json.dumps(verdict, ensure_ascii=False, indent=1), encoding="utf-8")
+    log.info("컷 %d 대사 목소리: %s — %s (들림: %s)", cut.index,
+             "Veo 그대로" if ok else "틀림", reason, heard.text)
+    return verdict
+
+
 async def dub_dialogue(
     sb: Storyboard,
     *,
@@ -370,31 +480,13 @@ async def dub_dialogue(
         return chosen
 
     async def keep_veo_voice(cut: Cut) -> bool:
-        """Veo 목소리를 들어 보고 그대로 써도 되면 True. 들을 수 없으면 False(더빙)."""
+        """Veo 목소리를 그대로 써도 되면 True. 영상 단계가 이미 들어 봤으면(voice_check.json) 그 판단을 쓴다."""
         record = job.cut_dir(cut.index) / "voice_check.json"
         if record.exists() and not force:
             return bool(json.loads(record.read_text(encoding="utf-8"))["keep_veo_voice"])
-        script = " ".join(line.text for line in cut.dialogue)
-        genders = {voice_gender(f"{p.voice} {p.appearance}") for p in
-                   (sb.character(line.speaker) for line in cut.dialogue) if p}
-        gender = genders.pop() if len(genders) == 1 else None
-        clip = job.cut_dir(cut.index) / "veo_listen.wav"
-        try:
-            _run([_ffmpeg(), "-y", "-i", str(job.cut_video(cut.index)), "-t", str(cut.duration_seconds),
-                  "-vn", "-ar", str(ANALYSIS_RATE), "-ac", "1", str(clip)])
-            async with sem:
-                heard = await listen.listen(audio=clip)
-            job.record_cost(f"cut{cut.index}_listen", LISTEN_PRICE_PER_CUT)
-        except Exception as exc:
-            log.warning("컷 %d Veo 목소리를 듣지 못해 더빙한다: %s", cut.index, exc)
-            return False
-        ok, reason = veo_voice_ok(script, heard, gender)
-        record.write_text(json.dumps({"keep_veo_voice": ok, "reason": reason, "script": script,
-                                      "heard": heard.text, "heard_voice": heard.voice, "gender": gender},
-                                     ensure_ascii=False, indent=1), encoding="utf-8")
-        log.info("컷 %d 대사 목소리: %s — %s (들림: %s)", cut.index,
-                 "Veo 그대로" if ok else "TTS 더빙", reason, heard.text)
-        return ok
+        async with sem:
+            verdict = await judge_veo_voice(sb, cut, video=job.cut_video(cut.index), listen=listen, job=job)
+        return verdict["keep_veo_voice"]
 
     async def one(cut: Cut) -> tuple[int, Path | None]:
         dest = job.cut_dialogue(cut.index)
@@ -410,7 +502,14 @@ async def dub_dialogue(
             # 원래 속도로 컷 시작 조금 뒤부터 놓는다(입에 맞추다 1.45배 빨라진 적이 있다).
             off_screen = voice_off_screen(sb, cut)
             segments = [] if off_screen else speech_segments(_load_mono(src, cut.duration_seconds))
-            targets = target_lengths(segments, len(cut.dialogue))
+            # Veo가 대본을 먼저 말하고 뒤에 덧붙였으면(들은 말 앞부분이 대본) 앞 구간부터 맞춘다.
+            record = job.cut_dir(cut.index) / "voice_check.json"
+            heard_text = json.loads(record.read_text(encoding="utf-8")).get("heard", "") if record.exists() else ""
+            script = " ".join(line.text for line in cut.dialogue)
+            script_first = bool(heard_text) and script_prefix_ok(script, heard_text)
+            n = len(cut.dialogue)
+            targets = ([round(b - a, 3) for a, b in segments[:n]] + [None] * n)[:n] if script_first \
+                else target_lengths(segments, n)
             lines = await asyncio.gather(
                 *(line_audio(cut, k, targets[k]) for k in range(len(cut.dialogue)))
             )
@@ -418,7 +517,7 @@ async def dub_dialogue(
             for path in lines:
                 with wave.open(str(path), "rb") as wf:
                     durations.append(wf.getnframes() / wf.getframerate())
-            slots = plan_slots(segments, durations, cut.duration_seconds)
+            slots = plan_slots(segments, durations, cut.duration_seconds, script_first=script_first)
             veo = job.cut_dir(cut.index) / "veo_audio.wav"
             proc = subprocess.run(
                 [_ffmpeg(), "-y", "-i", str(src), "-t", str(cut.duration_seconds), "-vn",

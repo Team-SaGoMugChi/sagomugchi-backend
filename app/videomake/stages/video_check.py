@@ -39,6 +39,8 @@ class VideoCheck(BaseModel):
     cut_index: int
     scene_cuts: list[float] = []  # 덮은 뒤 남은 샷 전환 시각(초)
     tail_covered_from: float | None = None  # 끝 조각을 정지 화면으로 덮기 시작한 시각
+    # 이 시각 뒤로 화면 끝에 낯선 사람이 들어온다 — 편집이 컷을 여기까지만 쓴다(compose). None이면 끝까지 깨끗하다.
+    clean_until: float | None = None
     issues: list[str] = []
 
     @property
@@ -123,6 +125,10 @@ async def check_cut_video(
             result.issues.append(issue)
         if look is not None:
             result.issues += await _people_issues(sb, cut, path, cuts, duration, look=look, job=job)
+            result.clean_until = await _intruder_time(sb, cut, path, duration, look=look, job=job)
+            if result.clean_until is not None:
+                log.warning("컷 %d: %.1f초 뒤로 화면 끝에 낯선 사람이 들어온다 — 그 앞까지만 쓴다",
+                            cut.index, result.clean_until)
         if cuts and isinstance(look, ContinuityProvider):
             result.issues += await _continuity_issues(cut, path, cuts, duration, look=look, job=job)
     except Exception as exc:  # 검사 도구 문제로 이미 돈 낸 영상을 버리지 않는다.
@@ -145,6 +151,7 @@ async def _people_issues(
         profile = sb.character(m.name)
         people.append(profile.appearance.split(".")[0].strip() if profile else m.name)
     check = CastCheck(people=people)
+    crowd = bool((place := sb.location(cut.location)) and place.background_people)
     bounds = [0.0, *cuts, duration]
     issues = []
     for k, (a, b) in enumerate(zip(bounds, bounds[1:]), 1):
@@ -156,9 +163,36 @@ async def _people_issues(
             issues.append(f"샷 {k}: 화면이 여러 칸으로 나뉘어 있다.")
         if seen.duplicate_person:
             issues.append(f"샷 {k}: 같은 사람이 두 번 나온다.")
-        if seen.unknown_person:
+        # 손님이 있는 곳은 배경 사람을 낯선 사람으로 잡아 늘 경고가 떴다(2026-11 카페·강의실) — 화면 끝 사람만 본다.
+        if seen.unknown_person and not crowd:
             issues.append(f"샷 {k}: 계획에 없던 사람이 나온다.")
     return issues
+
+
+# 화면 끝 낯선 사람을 찾을 때 보는 간격(초). 혼자 보이는 대사 컷에서 화면 밖 상대가 영상 도중에
+# 화면 끝으로 들어오는 일이 있었다(2026-11 강의실 일기 컷 3, 4.5초쯤 남자 뒷모습).
+INTRUDER_STEP_SECONDS = 1.0
+
+
+async def _intruder_time(
+    sb: Storyboard, cut: Cut, path: Path, duration: float, *, look: LookProvider, job: JobStore,
+) -> float | None:
+    """1초 간격 프레임에서 화면 끝에 잘린 낯선 사람이 처음 보이기 직전의 깨끗한 시각. 끝까지 없으면 None."""
+    check = CastCheck(people=[
+        (p.appearance.split(".")[0].strip() if (p := sb.character(m.name)) else m.name)
+        for m in sb.visible_cast(cut)
+    ])
+    clean = 0.0
+    t = INTRUDER_STEP_SECONDS
+    while t < duration - 0.1:
+        frame = await asyncio.to_thread(
+            _frame_at, path, t, job.cut_dir(cut.index) / f"check_edge_{t:04.1f}.png", width=480
+        )
+        if (await look.look(image=frame, cast=check)).cut_off_person:
+            return round(clean, 2)
+        clean = t
+        t += INTRUDER_STEP_SECONDS
+    return None
 
 
 async def _continuity_issues(

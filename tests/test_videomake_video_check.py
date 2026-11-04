@@ -85,7 +85,8 @@ def test_clone_in_a_shot_is_reported_for_rerender(tmp_path):
     clip = _clip(tmp_path / "v.mp4", [("red", 3), ("blue", 3)])
     look = _CloneLook()
     result = asyncio.run(check_cut_video(sb, cut, clip, look=look, job=job))
-    assert len(look.casts) == 2 and isinstance(look.casts[0], CastCheck)
+    # 샷마다 한 장 + 화면 끝 낯선 사람 확인(1초 간격)
+    assert len(look.casts) >= 2 and isinstance(look.casts[0], CastCheck)
     assert any("같은 사람이 두 번" in i for i in result.issues)
     saved = json.loads((job.cut_dir(cut.index) / "video_check.json").read_text(encoding="utf-8"))
     assert saved["issues"] == result.issues
@@ -151,3 +152,24 @@ def test_continuity_errors_are_reported_only_for_multi_shot_cuts(tmp_path):
     result = asyncio.run(check_cut_video(sb, cut, two_shots, look=look, job=job))
     assert look.frames and look.frames[0].shot == 1 and look.frames[-1].shot == 2
     assert "샷 연결: 6.3s 할머니가 지폐를 다시 건넨다" in result.issues
+
+
+class _IntruderLook:
+    """4초 프레임부터 화면 끝에 낯선 사람이 들어온다."""
+
+    async def look(self, *, image, place=None, cast=None):
+        late = "check_edge_" in image.name and float(image.stem.split("_")[-1]) >= 4.0
+        return SeenFrame(people=[], looks_at_camera=False, cut_off_person=late)
+
+
+def test_someone_walking_in_at_the_edge_limits_the_cut(tmp_path):
+    """영상 도중 화면 끝에 낯선 사람이 들어오면 그 앞 깨끗한 시각까지만 쓰게 남긴다."""
+    sb = _sb()
+    cut = sb.cuts[0]
+    job = JobStore(tmp_path, "j")
+    job.cut_dir(cut.index).mkdir(parents=True, exist_ok=True)
+    clip = _clip(tmp_path / "v.mp4", [("red", 6)])
+    result = asyncio.run(check_cut_video(sb, cut, clip, look=_IntruderLook(), job=job))
+    assert result.clean_until == 3.0
+    saved = json.loads((job.cut_dir(cut.index) / "video_check.json").read_text(encoding="utf-8"))
+    assert saved["clean_until"] == 3.0

@@ -167,6 +167,7 @@ class Pipeline:
                     # 다시 시도할 때 force를 쓰면 이미 받은 컷까지 다시 과금된다.
                     force=force and attempt == 0,
                     look=self.p.look,
+                    listen=self.p.listen if self.settings.dialogue_voice == "auto" else None,
                 )
             except VideoBlocked as exc:
                 if not redraw_blocked or attempt == BLOCK_REDRAWS:
