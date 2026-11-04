@@ -306,6 +306,54 @@ def lint_cast(sb: Storyboard) -> list[Violation]:
     return out
 
 
+def lint_dialogue_staging(sb: Storyboard) -> list[Violation]:
+    """혼자 보이는 대사 컷 앞에는 그 사람이 상대와 함께 보이는 컷이 와야 한다(영화의 설정 숏).
+
+    대사 컷은 말하는 사람만 보여서, 둘이 함께 있는 컷이 뒤에 나오면 상대가 갑자기 옆자리에
+    나타난 것처럼 보였다(2026-11 팔순 잔치: 할아버지 혼자 "고맙다" → 다음 컷에 손녀가 옆자리).
+    말하는 사람은 함께 보인 컷과 같은 쪽(left/right)에 있어야 시선이 이어진다.
+    """
+    out: list[Violation] = []
+    for cut in sb.cuts:
+        if not cut.dialogue or len(cut.cast) != 1:
+            continue
+        speaker = cut.cast[0]
+        if speaker.name not in {line.speaker for line in cut.dialogue}:
+            continue
+        together = [
+            c for c in sb.cuts
+            if c.location == cut.location and len(c.cast) > 1 and speaker.name in {m.name for m in c.cast}
+        ]
+        if not together:
+            continue  # 상대가 다른 자리(무대 등)에 있다 — 번갈아 보여주면 된다.
+        before = [c for c in together if c.index < cut.index]
+        if not before:
+            out.append(
+                Violation(
+                    field=f"cut{cut.index}.cast",
+                    rule="함께 보이는 컷을 대사보다 먼저",
+                    detail=(
+                        f"{speaker.name}이 상대와 함께 보이는 컷({[c.index for c in together]})이 대사 컷 {cut.index}보다 "
+                        "뒤에 있다. 두 사람이 함께 있는 컷(나레이션 또는 무음)을 대사 컷 앞에 둔다."
+                    ),
+                )
+            )
+            continue
+        side = next(m.position for m in before[-1].cast if m.name == speaker.name)
+        if side != speaker.position:
+            out.append(
+                Violation(
+                    field=f"cut{cut.index}.cast",
+                    rule="함께 보인 컷과 같은 자리",
+                    detail=(
+                        f"{speaker.name}은 컷 {before[-1].index}에서 {side}에 있었는데 대사 컷 {cut.index}에서는 "
+                        f"{speaker.position}이다. 같은 쪽({side})에 두고 상대가 있는 쪽을 바라보게 쓴다."
+                    ),
+                )
+            )
+    return out
+
+
 def lint_gender(sb: Storyboard) -> list[Violation]:
     """인물마다 성별이 appearance·voice에 드러나야 한다. 흐리면("young adult") 그림 모델은
     아무 성별로 그리고 대사 목소리는 다른 성별로 붙을 수 있다."""
@@ -345,4 +393,5 @@ def lint_storyboard(sb: Storyboard) -> list[Violation]:
     out += lint_name_repetition(sb)
     out += lint_silent_cuts(sb)
     out += lint_cast(sb)
+    out += lint_dialogue_staging(sb)
     return out
