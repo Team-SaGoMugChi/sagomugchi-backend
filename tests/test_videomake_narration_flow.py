@@ -63,6 +63,14 @@ def test_listener_issue_triggers_rewrite():
     assert "컷 2가 어색하다." in llm.users[2]
 
 
+def test_overlong_line_falls_back_alone():
+    sb = _sb()
+    long = "지하철에서 시계만 보며 미안하다고 문자를 길게 여러 번 보냈어요."
+    bad = _script(sb, "민지는 늦게 나왔는데,", long, "결국 웃었어요.")
+    out = asyncio.run(polish_narration(sb, _diary(), llm=_LLM(bad, bad, bad, bad)))
+    assert [c.narration for c in out.cuts] == ["민지는 늦게 나왔는데,", "지하철에서 문자했어요.", "결국 웃었어요."]
+
+
 def test_comma_ending_shortens_gap_only_when_voice_follows(tmp_path):
     sb = _sb()
     wav = tmp_path / "v.wav"

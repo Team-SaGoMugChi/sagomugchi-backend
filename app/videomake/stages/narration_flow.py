@@ -168,6 +168,20 @@ def apply_script(sb: Storyboard, script: _Script) -> Storyboard:
     return sb.model_copy(update={"cuts": cuts})
 
 
+def _keep_long_lines(sb: Storyboard, script: _Script) -> _Script | None:
+    """글자 수를 넘은 줄만 원래 나레이션으로 되돌린 대본. 그래도 규칙에 어긋나면 None.
+
+    짧은 컷(14자)에서 몇 줄만 넘쳐 대본 전체를 버리는 일이 있었다(2026-11 팔순 잔치 실제 생성).
+    """
+    limits = _limits(sb)
+    original = {c.index: c.narration for c in sb.cuts if c.narration}
+    lines = [_Line(cut=line.cut, narration=original[line.cut])
+             if line.cut in limits and len(line.narration.strip()) > limits[line.cut] else line
+             for line in script.lines]
+    merged = _Script(read_aloud=script.read_aloud, lines=lines)
+    return None if problems(sb, merged) else merged
+
+
 def _read_through(sb: Storyboard, diary: DiaryInput, script: _Script) -> str:
     lines = []
     for cut in apply_script(sb, script).cuts:
@@ -185,6 +199,7 @@ async def polish_narration(
         return sb
     user = _brief(sb, diary)
     passed: _Script | None = None
+    script: _Script | None = None
     fewest = 0
     for attempt in range(RETRIES + 1):
         try:
@@ -209,6 +224,8 @@ async def polish_narration(
         user = _brief(sb, diary) + "\n\n## 직전 결과\n\n" + script.model_dump_json() + \
             "\n\n## 직전 결과의 문제\n\n" + "\n".join(f"- {i}" for i in issues) + \
             "\n\n지적받은 줄만 고치고 나머지 줄은 직전 결과 그대로 둔다. 고칠 때도 모든 규칙을 지킨다."
+    if passed is None and isinstance(script, _Script):
+        passed = _keep_long_lines(sb, script)
     if passed is None:
         log.warning("나레이션 다듬기가 규칙을 지키지 못해 원래 나레이션을 쓴다.")
         return sb
