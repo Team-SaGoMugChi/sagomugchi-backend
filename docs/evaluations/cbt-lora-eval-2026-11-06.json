@@ -1,0 +1,180 @@
+{
+  "model": "Qwen/Qwen2.5-3B-Instruct",
+  "lora": {
+    "r": 16,
+    "alpha": 32,
+    "epochs": 3,
+    "lr": 0.0002,
+    "seed": 42
+  },
+  "train_examples": 34,
+  "val_examples": 6,
+  "train_loss": [
+    1.085677719116211,
+    0.7244895935058594,
+    0.5018838882446289
+  ],
+  "eval_loss": [
+    0.892793595790863,
+    0.7989270091056824,
+    0.7892860770225525
+  ],
+  "base": {
+    "n": 6,
+    "json_ok%": 0.0,
+    "key_ok%": 0.0,
+    "rule_ok%": 0.0,
+    "all_ok%": 0.0,
+    "advance_match%": 0.0,
+    "sec_median": 6.47
+  },
+  "sft": {
+    "n": 6,
+    "json_ok%": 100.0,
+    "key_ok%": 100.0,
+    "rule_ok%": 100.0,
+    "all_ok%": 100.0,
+    "advance_match%": 83.3,
+    "sec_median": 18.43
+  },
+  "rows": [
+    {
+      "i": 0,
+      "ref": "{\"reply\": \"오랜만에 쉬었는데 오히려 허전함을 느끼셨군요. 그런 공허한 느낌, 강도를 0에서 10 사이로 표현한다면 몇 정도일까요?\", \"advance\": false, \"extracted\": {\"emotionLabel\": \"공허함\"}}",
+      "base": {
+        "raw": "사용자가 집에서 보내는 시간이 공허함을 느끼게 했나 보네요. 그런 느낌이 강했나요? 0부터 10으로你觉得的话，你会给它打几分呢？",
+        "sec": 16.00837016105652,
+        "stage": 1,
+        "json_ok": false,
+        "key_ok": false,
+        "rule_ok": false,
+        "advance_match": false
+      },
+      "sft": {
+        "raw": "{\"reply\": \"집에서 빈둥빈둥 하면서 공허함을 느끼셨군요. 그런 느낌이 강하게 느껴졌을까요?\", \"advance\": false, \"extracted\": {}}",
+        "sec": 19.657553672790527,
+        "stage": 1,
+        "json_ok": true,
+        "key_ok": true,
+        "rule_ok": true,
+        "advance_match": true,
+        "violations": []
+      }
+    },
+    {
+      "i": 1,
+      "ref": "{\"reply\": \"공허함이 7 정도로 크게 느껴졌군요. 그 감정이 꽤 무겁게 다가왔던 것 같아요. 이런 감정을 느낄 때 어떤 생각이 스쳤나요?\", \"advance\": true, \"extracted\": {\"emotionLabel\": \"공허함\", \"intensity\": 7}}",
+      "base": {
+        "raw": "7점으로 표현하셨네요. 그런 공허함이 계속 느껴지는 느낌이셨다면, 조금 더 털어놓으시면 좋을 것 같습니다. 혹시 이런 감정이 왜 그런지 이유나 생각이 있으신가요?",
+        "sec": 12.602501392364502,
+        "stage": 1,
+        "json_ok": false,
+        "key_ok": false,
+        "rule_ok": false,
+        "advance_match": false
+      },
+      "sft": {
+        "raw": "{\"reply\": \"7 정도로 느껴지는 공허함, 그 느낌이 오랜만에 쉬는 것과 관련이 있을까요?\", \"advance\": true, \"extracted\": {\"emotionLabel\": \"공허함\", \"intensity\": 7}}",
+        "sec": 17.86753487586975,
+        "stage": 1,
+        "json_ok": true,
+        "key_ok": true,
+        "rule_ok": true,
+        "advance_match": true,
+        "violations": []
+      }
+    },
+    {
+      "i": 2,
+      "ref": "{\"reply\": \"쉬는 게 맞는지, 뭔가 더 해야 하는지 혼란스러웠던 거군요. 그 생각 때문에 허전함이 더 커진 것 같아요.\", \"advance\": true, \"extracted\": {\"automaticThought\": \"이렇게 쉬는 게 좋은 건지, 뭔가 더 해야 하는 건지 혼란스러웠어\"}}",
+      "base": {
+        "raw": "그렇게 생각하면서 혼란스러움을 느꼈나 봅니다. 그런 생각들이 꽉 막히는 느낌이었나요? 이런 감정이 처음과 어떻게 다른 느낌이었나요?",
+        "sec": 6.466918230056763,
+        "stage": 2,
+        "json_ok": false,
+        "key_ok": false,
+        "rule_ok": false,
+        "advance_match": false
+      },
+      "sft": {
+        "raw": "{\"reply\": \"그런 생각이 들 때, '무엇을 해야 할까'라는 의문이 떠올랐군요. 그 순간에 어떤 생각이 스쳤나요?\", \"advance\": true, \"extracted\": {\"automaticThought\": \"무엇을 해야 할까\"}}",
+        "sec": 12.906617403030396,
+        "stage": 2,
+        "json_ok": true,
+        "key_ok": true,
+        "rule_ok": true,
+        "advance_match": true,
+        "violations": []
+      }
+    },
+    {
+      "i": 3,
+      "ref": "{\"reply\": \"친한 친구가 같은 고민을 한다면 뭐라고 말해줄 것 같나요? 그 생각을 지금 얼마나 믿고 있는지도 궁금해요.\", \"advance\": false, \"extracted\": {}}",
+      "base": {
+        "raw": "그렇게 고민하면서 허전함이 더 커지는 것 같아요. 그런 생각들이 꽤 무겁게 다가왔던 것 같네요.",
+        "sec": 6.3291168212890625,
+        "stage": 3,
+        "json_ok": false,
+        "key_ok": false,
+        "rule_ok": false,
+        "advance_match": false
+      },
+      "sft": {
+        "raw": "{\"reply\": \"활동적으로 움직여야 하는지, 쉬는 게 좋은지 고민하면서 더 힘들어지는 것 같아요. 그 생각이 지금 얼마나 믿음직하다고 느끼나요?\", \"advance\": false, \"extracted\": {\"insight\": \"활동적 활동과 쉬는 것 사이에서 고민\"}, \"extracted_beliefBefore\": null}",
+        "sec": 16.717108488082886,
+        "stage": 3,
+        "json_ok": true,
+        "key_ok": true,
+        "rule_ok": true,
+        "advance_match": true,
+        "violations": []
+      }
+    },
+    {
+      "i": 4,
+      "ref": "{\"reply\": \"친구에게는 쉬는 것도 중요하다고 말해줄 것 같군요. 그럼에도 불구하고 본인에게는 잘 적용되지 않는 느낌인가 봐요. 지금 그 생각을 0에서 100으로 얼마나 믿고 계신가요?\", \"advance\": true, \"extracted\": {\"insight\": \"친구에게는 쉬는 것도 중요하다고 말해줄 것 같다고 함\", \"beliefBefore\": 70}}",
+      "base": {
+        "raw": "친구한테는 쉬는 게 중요하다고 말하실 것 같네요. 그럼 그 생각을 지금 얼마나 믿고 있는지, 0에서 100으로 표현해도 될까요?",
+        "sec": 6.434075593948364,
+        "stage": 3,
+        "json_ok": false,
+        "key_ok": false,
+        "rule_ok": false,
+        "advance_match": false
+      },
+      "sft": {
+        "raw": "{\"reply\": \"그렇게 믿고 있는 믿음 정도를 0에서 100으로 표현한다면 몇 정도일까요?\", \"advance\": false, \"extracted\": {\"insight\": \"쉬는 게 중요하고, 가끔은 그렇게 느끼는 게 자연스러운 것\", \"beliefBefore\": null}}",
+        "sec": 18.98633050918579,
+        "stage": 3,
+        "json_ok": true,
+        "key_ok": true,
+        "rule_ok": true,
+        "advance_match": false,
+        "violations": []
+      }
+    },
+    {
+      "i": 5,
+      "ref": "{\"reply\": \"친구에게는 100%로 말해줄 수 있지만, 자신에게는 60% 정도만 믿으시는군요. 쉬는 것도 중요하다고 생각하지만, 마음속에서 완전히 받아들이기 어려운 부분이 있는 것 같아요.\", \"advance\": true, \"extracted\": {\"alternativeThought\": \"쉬는 것도 중요하고, 가끔은 그렇게 느끼는 게 자연스러운 거다.\", \"beliefAfter\": 60}}",
+      "base": {
+        "raw": "친구에게는 그렇게 말하셨지만, 본인에게는 그 생각이 잘 받아들여지지 않는 것 같네요. 그런 생각을 믿는 정도는 60 정도로 표현하셨군요.",
+        "sec": 6.473559617996216,
+        "stage": 4,
+        "json_ok": false,
+        "key_ok": false,
+        "rule_ok": false,
+        "advance_match": false
+      },
+      "sft": {
+        "raw": "{\"reply\": \"친구에게는 쉬는 것도 중요하다고 말해줄 것 같지만, 내 자신에게는 그게 잘 안 받아들여지는 것 같아요. 그 생각을 60 정도로 믿고 계신다면, 그 생각을 좀 더 믿고 싶으시다면, 어떤 활동이나 행동을 통해 그 믿음을 더 강화할 수 있을까요?\", \"advance\": true, \"extracted\": {\"beliefAfter\": 60}}",
+        "sec": 19.980602741241455,
+        "stage": 4,
+        "json_ok": true,
+        "key_ok": true,
+        "rule_ok": true,
+        "advance_match": true,
+        "violations": []
+      }
+    }
+  ]
+}
