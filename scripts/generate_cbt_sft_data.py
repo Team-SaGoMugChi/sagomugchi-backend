@@ -34,7 +34,12 @@ sys.path.insert(0, str(ROOT))
 from app.core.config import get_settings  # noqa: E402
 from app.services import counsel_cbt, llm_client  # noqa: E402
 from app.services.counsel_guardrail import RiskLevel, assess  # noqa: E402
-from app.services.counsel_output_check import check_reply  # noqa: E402
+from app.services.counsel_output_check import (  # noqa: E402
+    HARD,
+    check_reply,
+    feedback_for,
+    repair,
+)
 from app.services.counsel_prompt import build_system_prompt  # noqa: E402
 
 DEFAULT_OUT = ROOT / "data" / "sft" / "cbt_sessions.jsonl"
@@ -250,6 +255,33 @@ def problems(raw: str, stage: int, user_texts: list[str], ctx: dict) -> list[str
     return found
 
 
+def _violations(raw: str, user_texts: list[str], ctx: dict) -> list:
+    try:
+        reply = str(json.loads(raw).get("reply") or "")
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        return []
+    return check_reply(reply, user_texts=user_texts, has_recent_themes=knows_history(ctx))
+
+
+def _feedback(raw: str, user_texts: list[str], ctx: dict) -> str:
+    """다시 쓸 때 시스템 프롬프트 끝에 붙일 지시. JSON이 깨졌으면 형식만 다시 알려준다."""
+    violations = _violations(raw, user_texts, ctx)
+    if violations:
+        return feedback_for(violations)
+    return "\n\n[응답 재작성 지시] 출력 형식의 JSON 객체 하나만, 단계에 맞는 extracted 키로 다시 쓴다."
+
+
+def _repair_soft(raw: str, stage: int, user_texts: list[str], ctx: dict) -> tuple[str, list[str]]:
+    """가벼운 위반만 남은 응답을 repair()로 고친다. 심각한 위반이나 형식 오류면 그대로 둔다."""
+    violations = _violations(raw, user_texts, ctx)
+    if not violations or any(v.severity == HARD for v in violations):
+        return raw, problems(raw, stage, user_texts, ctx)
+    data = json.loads(raw)
+    data["reply"] = repair(str(data["reply"]))
+    fixed = json.dumps(data, ensure_ascii=False)
+    return fixed, problems(fixed, stage, user_texts, ctx)
+
+
 def simulate_user(ctx: dict, turns: list[dict], sim_model: str) -> str:
     note = ""
     if ctx["last_mission"]:
@@ -290,15 +322,24 @@ def run_session(ctx: dict, bot_model: str, sim_model: str) -> dict:
         messages = history_for(turns) + [{"role": "user", "content": user_text}]
         user_texts = [t["user"] for t in turns] + [user_text]
 
-        raw, found = "", ["no_call"]
+        raw, found, feedback = "", ["no_call"], ""
         for _attempt in range(1 + BOT_RETRIES):
             raw = llm_client.chat(
-                system, messages, json_mode=True, max_tokens=BOT_MAX_TOKENS, model=bot_model
+                system + feedback,
+                messages,
+                json_mode=True,
+                max_tokens=BOT_MAX_TOKENS,
+                model=bot_model,
             )
             found = problems(raw, stage, user_texts, ctx)
             if not found:
                 break
             rejected.extend(found)
+            # 서비스(verify)처럼 어긴 규칙을 알려주고 다시 쓰게 한다.
+            feedback = _feedback(raw, user_texts, ctx)
+        if found:
+            # 가벼운 위반(질문 2개·길이 등)만 남았으면 서비스처럼 잘라서 고친다.
+            raw, found = _repair_soft(raw, stage, user_texts, ctx)
         if found:
             end_reason = "bot_rule:" + found[0]
             break
