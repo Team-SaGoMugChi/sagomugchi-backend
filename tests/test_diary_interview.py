@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.models.diary_interview import InterviewTurnRequest
 from app.services import diary_interview
 
 
@@ -27,10 +28,16 @@ ALL_FILLED = {
 }
 
 
-def _facts(just_felt=False, finished=False, summary=None, **slots):
+def _facts(just_felt=False, finished=False, summary=None, conflict=False, **slots):
     """칸 추출 호출(첫 번째 LLM 호출)의 응답."""
     return json.dumps(
-        {"slots": slots, "summary": summary, "just_felt": just_felt, "finished": finished},
+        {
+            "slots": slots,
+            "summary": summary,
+            "just_felt": just_felt,
+            "finished": finished,
+            "conflict": conflict,
+        },
         ensure_ascii=False,
     )
 
@@ -90,7 +97,12 @@ def test_interview_turn_fills_slots_and_asks_about_a_missing_one(monkeypatch):
     assert body["crisis"] is False
     assert body["slots"]["언제"] == "오늘 오후"
     assert body["slots"]["그때 기분"] is None
-    assert body["missing"] == [n for n in diary_interview.SLOTS if n not in ("무엇을", "언제")]
+    # 갈등이 아닌 날엔 상대 칸을 빈 칸으로 알리지 않는다.
+    assert body["missing"] == [
+        n
+        for n in diary_interview.SLOTS
+        if n not in ("무엇을", "언제", *diary_interview.CONFLICT_SLOTS)
+    ]
 
     extract, compose = calls
     assert extract["system_prompt"] == diary_interview.EXTRACT_PROMPT
@@ -453,3 +465,98 @@ def test_interview_turn_stops_on_crisis_without_llm(monkeypatch):
 )
 def test_interview_turn_rejects_invalid_payload(payload):
     assert client.post("/diary/interview/turn", json=payload).status_code == 422
+
+
+# --- 갈등 상황: 상대가 한 말·상대의 상황도 묻는다 (#120) ---
+
+CONFLICT_STORY = "오늘 친구랑 약속 때문에 크게 싸웠어요."
+
+
+def test_interview_prompts_ask_about_the_other_side_without_taking_sides():
+    assert '"conflict"' in diary_interview.EXTRACT_PROMPT
+    for name in diary_interview.CONFLICT_SLOTS:
+        assert name in diary_interview.SLOTS
+        assert name in diary_interview.ASK_ORDER
+        assert name in diary_interview.EXTRACT_PROMPT
+    assert "속마음을 짐작해 채우지 않는다" in diary_interview.EXTRACT_PROMPT
+    assert "상대 편을 들지 않는다" in diary_interview.REPLY_PROMPT
+
+
+def test_interview_turn_asks_what_the_other_person_said_on_a_conflict_day(monkeypatch):
+    calls = _fake_chat(
+        monkeypatch,
+        _facts(conflict=True, 무엇을="친구와 약속 때문에 싸움", 어떻게="약속 시간을 두고 말다툼"),
+        "아이고, 싸웠군요. 그때 친구는 뭐라고 했어요?",
+    )
+
+    body = _post(user_text=CONFLICT_STORY).json()
+
+    task = _task(calls)
+    # 일이 어떻게 흘러갔는지 들은 뒤엔 상대가 한 말이 먼저다.
+    assert "- 상대 발언:" in task
+    assert "- 그때 기분:" in task
+    assert "사실만 묻는다" in task
+    assert body["reply"] == "아이고, 싸웠군요. 그때 친구는 뭐라고 했어요?"
+    assert "상대 발언" in body["missing"]
+    assert "상대 상황" in body["missing"]
+
+
+def test_interview_turn_does_not_ask_about_the_other_side_without_a_conflict(monkeypatch):
+    filled = {k: v for k, v in ALL_FILLED.items() if k != "기분 변화"}
+    calls = _fake_chat(monkeypatch, _facts(**filled), "오늘 더 하고 싶은 이야기 있어요?")
+
+    body = _post(user_text="지금은 조금 서운해요.").json()
+
+    assert diary_interview.WRAP_UP_MARK in _task(calls)
+    assert "상대" not in _task(calls)
+    assert body["missing"] == ["기분 변화"]
+
+
+def test_interview_turn_asks_the_other_sides_situation_before_wrapping_up(monkeypatch):
+    filled = {k: v for k, v in ALL_FILLED.items() if k != "기분 변화"}
+    calls = _fake_chat(
+        monkeypatch,
+        _facts(conflict=True, **filled, **{"상대 발언": "다음에 얘기하자고 함"}),
+        "그랬군요. 팀장은 그때 어떤 상황이었던 것 같아요?",
+    )
+
+    body = _post(user_text="지금은 조금 서운해요.").json()
+
+    task = _task(calls)
+    assert "- 상대 상황:" in task
+    assert diary_interview.WRAP_UP_MARK not in task
+    assert body["missing"] == ["기분 변화", "상대 상황"]
+    assert body["slots"]["상대 발언"] == "다음에 얘기하자고 함"
+
+
+def test_interview_turn_wraps_up_when_the_other_side_is_heard(monkeypatch):
+    filled = {**ALL_FILLED, "상대 발언": "다음에 얘기하자고 함", "상대 상황": "마감에 쫓김"}
+    calls = _fake_chat(monkeypatch, _facts(conflict=True, **filled), "오늘 더 하고 싶은 이야기 있어요?")
+
+    body = _post(user_text="팀장도 마감 때문에 정신없었던 것 같아요.").json()
+
+    assert diary_interview.WRAP_UP_MARK in _task(calls)
+    assert body["missing"] == []
+
+
+def test_interview_turn_gives_a_conflict_day_more_questions(monkeypatch):
+    _fake_chat(monkeypatch, _facts(conflict=True, 무엇을="친구와 싸움"), "그때 친구는 뭐라고 했어요?")
+
+    at_usual_limit = _post(
+        user_text="잘 모르겠어요.",
+        history=_history_with_follow_ups(diary_interview.MAX_FOLLOW_UPS),
+    ).json()
+    extra = diary_interview.MAX_FOLLOW_UPS + diary_interview.CONFLICT_EXTRA_FOLLOW_UPS
+    at_conflict_limit = _post(user_text="잘 모르겠어요.", history=_history_with_follow_ups(extra)).json()
+
+    assert at_usual_limit["done"] is False
+    assert at_conflict_limit["done"] is True
+    assert at_conflict_limit["reply"] in diary_interview.CLOSINGS
+
+
+def test_interview_request_holds_a_full_conflict_day_conversation():
+    extra = diary_interview.MAX_FOLLOW_UPS + diary_interview.CONFLICT_EXTRA_FOLLOW_UPS
+    # 첫 인사 + 답 extra개 + 질문 extra개 — 마지막 요청의 history 길이
+    history = _history_with_follow_ups(extra)
+    assert len(history) == 2 * extra + 1
+    InterviewTurnRequest(user_text="네.", history=history)
