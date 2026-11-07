@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     clova_voice_client_id: str | None = None
     clova_voice_client_secret: str | None = None
 
+    # 탄카츄 목소리(/tts). 키가 있으면 Fish Audio로 읽는다(말투별 목소리는 app/api/routes/tts.py).
+    # 영상 나레이션과 같은 FISH_API_KEY를 쓴다. s2.1-pro-free는 무료지만 보장·기한이 불확실하다.
+    fish_api_key: str | None = None
+    tts_fish_model: str = "s2.1-pro-free"
+
 
 @lru_cache
 def get_settings() -> Settings:
