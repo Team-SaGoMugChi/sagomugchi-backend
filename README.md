@@ -229,9 +229,9 @@ curl http://localhost:8000/video/jobs/<job_id>
 
 **스토리보드 LLM (기본 GPT):** `VIDEOMAKE_LLM_PROVIDER=openai`가 기본값이다. 영상 전용 키
 `VIDEOMAKE_OPENAI_API_KEY`로 시나리오(스토리보드)만 GPT가 짠다(상담의 `LLM_API_KEY`와 용도별로 분리). 모델은 `VIDEOMAKE_OPENAI_MODEL`(기본
-`gpt-5.5` — gpt-4o-mini는 연출 규칙을 자주 어겨 재요청 3회 안에 통과하지 못했다). 이미지·영상·나레이션은 그대로 Vertex를 쓰므로 실제 생성에는 GCP 설정이 여전히
-필요하다. Gemini로 바꾸려면 `VIDEOMAKE_LLM_PROVIDER=gemini`. 상담용 `LLM_MODEL`(gpt-4o)은
-그대로 둔다 — GPT-5 계열은 상담 코드의 `max_tokens`/`temperature`를 받지 않는다.
+`gpt-6-luna` — gpt-4o-mini는 연출 규칙을 자주 어겨 재요청 3회 안에 통과하지 못했고, luna는 gpt-5.5와 재요청 횟수가 같으면서 일기에 없는 말을 덜 지어냈다). 이미지·영상·나레이션은 그대로 Vertex를 쓰므로 실제 생성에는 GCP 설정이 여전히
+필요하다. Gemini로 바꾸려면 `VIDEOMAKE_LLM_PROVIDER=gemini`. 일기·상담용 `LLM_MODEL`(기본
+`gpt-6-luna`)은 따로 둔다 — 추론형 모델이면 `llm_client`가 `max_completion_tokens`·`LLM_REASONING_EFFORT`로 바꿔 보낸다.
 
 **더미 모드 (GCP 없이):** `.env`에 `VIDEOMAKE_DUMMY=true`. 모델을 부르지 않고 ffmpeg로
 회색 이미지·단색 영상·무음 나레이션을 만들어 같은 흐름을 끝까지 돈다. 과금 0이고, 앱

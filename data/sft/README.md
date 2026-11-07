@@ -61,7 +61,7 @@ python -X utf8 scripts/counsel_stats.py compare docs/evaluations/counsel-eval-<�
 python -X utf8 scripts/counsel_stats.py export-replies <base.json> <sft.json> --n 40   # 블라인드 사람 검수
 ```
 
-서비스 적용은 `.env`의 `LLM_MODEL=ft:...` (코드 수정 없음). 되돌릴 때는 `LLM_MODEL=gpt-4o`.
+서비스 적용은 `.env`의 `LLM_MODEL=ft:...` (코드 수정 없음). 되돌릴 때는 `LLM_MODEL=gpt-6-luna`(gpt-4o 계열 파인튜닝 모델은 2027-01-14에 베이스 모델과 함께 종료된다).
 
 ## CBT 단계형 데이터 (현재 기준)
 
