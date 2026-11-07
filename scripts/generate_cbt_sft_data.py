@@ -374,8 +374,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="CBT 단계형 상담 SFT 데이터 생성")
     parser.add_argument("--count", type=int, default=5, help="생성할 회기 수")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
-    parser.add_argument("--model", default="gpt-4o", help="상담봇 역할 모델 (서비스와 같게)")
-    parser.add_argument("--sim-model", default="gpt-4o-mini", help="사용자 역할 모델")
+    parser.add_argument("--model", default="gpt-6-luna", help="상담봇 역할 모델 (서비스와 같게)")
+    parser.add_argument("--sim-model", default="gpt-6-luna", help="사용자 역할 모델")
     parser.add_argument("--seed", type=int, default=None)
     args = parser.parse_args()
 

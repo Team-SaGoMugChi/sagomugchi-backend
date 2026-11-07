@@ -25,7 +25,7 @@
 실행
     python -X utf8 scripts/evaluate_counsel.py                 # 위기 감지만 (과금 0)
     python -X utf8 scripts/evaluate_counsel.py --judge         # + LLM 2단계 판정 비교
-    python -X utf8 scripts/evaluate_counsel.py --live --runs 3 --model gpt-4o-mini
+    python -X utf8 scripts/evaluate_counsel.py --live --runs 3 --model gpt-6-luna
                                                                # + 응답 검증 3회 반복(평균±표준편차)
 
 결과는 docs/evaluations/counsel-eval-YYYY-MM-DD.{md,json}에 저장한다.

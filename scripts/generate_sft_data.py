@@ -1,7 +1,7 @@
 """상담 SFT 학습 데이터 생성기.
 
 `app/services/counsel_prompt.py`의 시스템 프롬프트를 그대로 써서, 그 규칙을
-따르는 상담 대화를 GPT-4o에게 쓰게 한다. 사람이 검수한 뒤 학습에 쓴다.
+따르는 상담 대화를 GPT(기본 gpt-6-luna)에게 쓰게 한다. 사람이 검수한 뒤 학습에 쓴다.
 공개 감정대화 말뭉치(AI Hub 등)는 영리 이용 제한이 있어 쓰지 않는다.
 
 한 대화는 상담봇의 인사로 시작한다. 실제 앱에서도 baseline·일기·감정 분석
@@ -242,7 +242,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--count", type=int, default=20, help="생성할 대화 수")
     parser.add_argument("--out", default="data/sft/generated.jsonl")
-    parser.add_argument("--model", default="gpt-4o", help="데이터를 쓰는 모델")
+    parser.add_argument("--model", default="gpt-6-luna", help="데이터를 쓰는 모델")
     args = parser.parse_args()
 
     settings = get_settings()
