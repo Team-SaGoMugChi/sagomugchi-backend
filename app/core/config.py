@@ -25,9 +25,13 @@ class Settings(BaseSettings):
     # 표정 AU 추출용 MediaPipe 모델. 없으면 첫 사용 때 받아온다 (app/services/face_au.py).
     face_landmarker_model_path: str = ".cache/mediapipe/face_landmarker.task"
 
-    # 상담 대화·리포트용 LLM. .env의 LLM_MODEL이 있으면 그 값이 우선한다.
+    # 일기 말하기·정리, 상담 대화·리포트용 LLM. .env의 LLM_MODEL이 있으면 그 값이 우선한다.
+    # gpt-4o·gpt-4o-mini는 2027-01-14 종료 — OpenAI 권장 대체인 gpt-6-luna를 쓴다.
     llm_api_key: str | None = None
-    llm_model: str = "gpt-4o"
+    llm_model: str = "gpt-6-luna"
+    # 추론형 모델의 생각 단계. none이면 추론 토큰 0으로 응답 속도가 gpt-4o-mini와 같다
+    # (2026-11-05 일기 1편 실측). medium(OpenAI 기본값)은 응답이 2~3배 느려진다.
+    llm_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh"] = "none"
 
     # 상담 맥락(baseline 신호·일기 요약 등)이 앱에서 안 넘어올 때 더미로 채울지.
     # 실제 사용자에게 예시 감정·주제가 섞이지 않도록 기본은 false다. UI 흐름만
@@ -36,7 +40,7 @@ class Settings(BaseSettings):
     # 위기 판정 2단계(app/services/counsel_risk_judge.py). 규칙이 CRISIS가 아니라고 본
     # 발화만 LLM이 한 번 더 본다. 켜면 상담 한 턴에 짧은 LLM 호출이 하나 늘어난다.
     counsel_llm_judge: bool = False
-    counsel_judge_model: str = "gpt-4o"
+    counsel_judge_model: str = "gpt-6-luna"
     counsel_judge_timeout_sec: float = Field(default=5.0, gt=0)
 
     # Naver CLOVA Speech(STT). 도메인 하나에 Invoke URL과 Secret Key 두 값이 나오므로

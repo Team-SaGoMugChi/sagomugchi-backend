@@ -4,11 +4,31 @@
 던지고, 호출하는 쪽이 고정 응답으로 폴백한다.
 """
 
+import re
 from functools import lru_cache
 
 from openai import OpenAI
 
 from app.core.config import get_settings
+
+# 추론형 모델(gpt-5 이후, o 시리즈)은 max_tokens·temperature를 받지 않는다(넣으면 400).
+_REASONING_MODEL = re.compile(r"^(gpt-([5-9]|\d{2,})|o\d)")
+
+# reasoning_effort가 none이 아니면 답 앞에 추론 토큰을 쓰므로, 답이 잘리지 않게 그만큼 더 준다.
+_REASONING_BUDGET = 4000
+
+
+def is_reasoning_model(model: str) -> bool:
+    return bool(_REASONING_MODEL.match(model))
+
+
+def _sampling(model: str, temperature: float, max_tokens: int) -> dict:
+    """모델 종류에 맞는 생성 파라미터. 추론형은 temperature를 기본값(1)으로만 쓴다."""
+    if not is_reasoning_model(model):
+        return {"temperature": temperature, "max_tokens": max_tokens}
+    effort = get_settings().llm_reasoning_effort
+    budget = max_tokens if effort == "none" else max_tokens + _REASONING_BUDGET
+    return {"max_completion_tokens": budget, "reasoning_effort": effort}
 
 
 @lru_cache
@@ -35,15 +55,16 @@ def chat(
                 시스템 프롬프트에 'JSON'이라는 말이 들어 있어야 한다.
     [model]     비우면 .env의 LLM_MODEL. 위기 판정처럼 다른 모델을 쓸 때만 넘긴다.
     [timeout]   초 단위 요청 제한. 비우면 OpenAI 기본값.
+    [temperature] 추론형 모델(gpt-6-luna 등)에는 보내지 않는다.
     """
+    model = model or get_settings().llm_model
     extra: dict = {"response_format": {"type": "json_object"}} if json_mode else {}
     if timeout is not None:
         extra["timeout"] = timeout
     response = _client().chat.completions.create(
-        model=model or get_settings().llm_model,
-        temperature=temperature,
-        max_tokens=max_tokens,
+        model=model,
         messages=[{"role": "system", "content": system_prompt}, *messages],
+        **_sampling(model, temperature, max_tokens),
         **extra,
     )
     return (response.choices[0].message.content or "").strip()
