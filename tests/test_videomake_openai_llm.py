@@ -122,25 +122,22 @@ def test_gpt_storyboard_passes_guardrails(tmp_path):
 
 
 def test_reasoning_models_get_no_temperature():
-    """gpt-5 계열은 temperature를 받지 않는다(넣으면 400)."""
+    """gpt-5·gpt-6 계열은 temperature를 받지 않는다(넣으면 400)."""
     completions = _Completions(parsed=_draft())
-    asyncio.run(
-        OpenAILLMProvider(_client(completions), "gpt-5.5").complete_json(
-            system="s", user="u", schema=_StoryboardDraft
+    for model in ("gpt-5.5", "gpt-6-luna", "gpt-4o"):
+        asyncio.run(
+            OpenAILLMProvider(_client(completions), model).complete_json(
+                system="s", user="u", schema=_StoryboardDraft
+            )
         )
-    )
-    asyncio.run(
-        OpenAILLMProvider(_client(completions), "gpt-4o").complete_json(
-            system="s", user="u", schema=_StoryboardDraft
-        )
-    )
     assert "temperature" not in completions.calls[0]
-    assert completions.calls[1]["temperature"] == 0.9
+    assert "temperature" not in completions.calls[1]
+    assert completions.calls[2]["temperature"] == 0.9
 
 
-def test_default_openai_model_is_gpt_5_5(monkeypatch):
+def test_default_openai_model_is_gpt_6_luna(monkeypatch):
     monkeypatch.delenv("VIDEOMAKE_OPENAI_MODEL", raising=False)
-    assert _settings().openai_model == "gpt-5.5"
+    assert _settings().openai_model == "gpt-6-luna"
 
 
 def test_counsel_key_is_not_used_for_video(monkeypatch):
