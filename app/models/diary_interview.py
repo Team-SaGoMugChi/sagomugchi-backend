@@ -14,7 +14,9 @@ class InterviewTurnRequest(BaseModel):
     user_text: str = Field(..., min_length=1, max_length=5000, description="이번 차례 STT 결과")
     history: list[InterviewMessage] = Field(
         default_factory=list,
-        max_length=20,
+        # 갈등인 날은 질문이 최대 10개라(diary_interview.CONFLICT_EXTRA_FOLLOW_UPS) 첫 인사 +
+        # 답 10개 + 질문 10개 = 21개까지 온다.
+        max_length=24,
         description="이번 발화 이전까지의 대화. 앱의 첫 인사도 oddo 메시지로 포함한다.",
     )
 

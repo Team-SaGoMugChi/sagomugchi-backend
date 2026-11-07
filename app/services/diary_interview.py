@@ -26,7 +26,13 @@
     원문 확인(Step2)으로 넘어간다. 요약(summary)은 보여주기용이고 감정 분석 입력은 사용자
     답변 원문이다(LLM이 다듬은 글을 넣으면 텍스트 감정이 달라진다).
 
-질문은 최대 MAX_FOLLOW_UPS개. 사용자가 끝까지 답하지 않는 칸이 있어도 대화는 끝나야 한다.
+갈등 (#120)
+    누군가와 부딪힌 일(말다툼·서운한 말·오해·혼남)이면 칸 추출이 conflict로 알리고, 그날만
+    상대가 한 말(상대 발언)과 상대의 상황(상대 상황) 두 칸을 더 묻는다. 사용자 말만 들으면
+    일기·영상·상담이 한쪽 이야기만 담는다. 상대 편을 들거나 누가 옳은지 따지지 않고 사실만
+    묻는다. 갈등이 아닌 날에는 이 두 칸을 묻지도, 빈 칸(missing)으로 알리지도 않는다.
+
+질문은 최대 MAX_FOLLOW_UPS개(갈등이면 CONFLICT_EXTRA_FOLLOW_UPS개 더). 사용자가 끝까지 답하지 않는 칸이 있어도 대화는 끝나야 한다.
 키가 없거나 호출·파싱이 실패하면 고정 문구로 대신하고 경고를 남긴다 — 대화가 멈추지 않게.
 """
 
@@ -43,6 +49,9 @@ from app.services import llm_client
 logger = logging.getLogger(__name__)
 
 MAX_FOLLOW_UPS = 8
+# 갈등인 날 더 묻는 칸만큼 질문 상한을 늘린다. 앱이 보내는 history 상한
+# (InterviewTurnRequest.history max_length)이 그만큼의 대화를 담을 수 있어야 한다.
+CONFLICT_EXTRA_FOLLOW_UPS = 2
 
 # 칸 이름 → LLM에게 주는 설명. 순서는 앱에 돌려주는 빈 칸(missing) 순서다.
 SLOTS: dict[str, str] = {
@@ -55,14 +64,21 @@ SLOTS: dict[str, str] = {
     "그때 기분": "사건의 핵심 순간에 느낀 감정 (사용자가 말한 표현 그대로)",
     "기분 변화": "기분이 바뀐 순간과 계기 (바뀌지 않았다고 했다면 '변화 없음')",
     "지금 기분": "지금 그 일을 돌아보는 마음",
+    "상대 발언": "갈등 상대가 한 말이나 행동 (사용자가 전한 그대로)",
+    "상대 상황": "갈등 상대가 그때 처해 있던 상황이나 사정 (사용자가 알거나 짐작한 대로)",
 }
 FEELING_SLOTS = ("그때 기분", "기분 변화", "지금 기분")
+# 누군가와 부딪힌 날에만 묻는 칸.
+CONFLICT_SLOTS = ("상대 발언", "상대 상황")
 
 # 빈 칸을 묻는 순서 — 친구가 이야기를 들을 때 궁금해하는 순서(무슨 일 → 그래서 → 그 순간 마음 …).
 # 앞의 두 칸을 후보로 주고 흐름에 맞는 쪽을 LLM이 고른다.
 # "기분 변화"는 따로 묻지 않는다 — 그때·직후·지금 기분을 세 번 물으면 어색하다(재영 실기기
 # 테스트). 그때 기분과 지금 기분을 들으면 칸 추출이 둘을 비교해 채우고, 못 채워도 마무리한다.
-ASK_ORDER = ("무엇을", "어떻게", "그때 기분", "누가", "언제", "어디서", "왜", "지금 기분")
+# 상대가 한 말은 일이 어떻게 흘러갔는지 들은 뒤, 상대의 상황은 내 기분을 들은 뒤에 묻는다.
+ASK_ORDER = (
+    "무엇을", "어떻게", "상대 발언", "그때 기분", "누가", "상대 상황", "언제", "어디서", "왜", "지금 기분",
+)
 OPTIONAL_SLOTS = ("기분 변화",)
 
 # 말 만들기가 실패했거나 질문을 빠뜨렸을 때 서버가 직접 묻는 말.
@@ -76,6 +92,8 @@ SLOT_QUESTIONS: dict[str, str] = {
     "그때 기분": "그 순간엔 마음이 어땠어요?",
     "기분 변화": "그러고 나서 마음이 좀 달라졌어요?",
     "지금 기분": "지금은 좀 어때요?",
+    "상대 발언": "그때 상대는 뭐라고 했어요?",
+    "상대 상황": "상대는 그때 어떤 상황이었던 것 같아요?",
 }
 
 # 끝내기 전에 묻는 말. 탄카츄의 말에 이 구절이 들어 있으면 마무리 확인을 한 것으로 본다.
@@ -126,10 +144,14 @@ EXTRACT_PROMPT = f"""너는 감정 일기 앱 '오또'의 기록 담당이다. �
 - "기분 변화"는 따로 묻지 않는다. 사용자가 말한 그때 기분·그 뒤 기분·지금 기분을 비교해 채운다.
   예: 그때 "당황스러웠어", 지금 "이제 좀 웃겨" → 기분 변화: 당황스러움 → 지금은 웃김
   예: 그때 "속상했어", 지금도 "아직 속상해" → 기분 변화: 변화 없음
+- "상대 발언"·"상대 상황"은 갈등 상대에 대해 사용자가 말한 것만 채운다. 상대의 속마음을 짐작해 채우지 않는다.
+  예: "친구가 약속에 늦었는데 미안하단 말도 없었어" → 상대 발언: 늦고도 미안하다는 말이 없었음 / 상대 상황: null
 
 [판단]
 - just_felt: [방금 한 말]에서 사용자가 자기 감정을 직접 말했으면 true.
 - finished: 탄카츄가 "더 하고 싶은 이야기"를 물었고, 사용자가 더 없다고 답했으면 true.
+- conflict: 지금까지의 이야기가 특정한 사람과 부딪힌 일(말다툼, 싸움, 서운한 말을 들음, 오해, 혼남,
+  의견 충돌)이면 true. 그 사람과 함께 있었을 뿐이거나 혼자 겪은 일이면 false.
 
 [요약]
 일기 요약(summary)을 매번 새로 쓴다. 짧은 한두 문장, 합쳐서 60자 안팎으로 핵심만 쓴다.
@@ -140,7 +162,7 @@ EXTRACT_PROMPT = f"""너는 감정 일기 앱 '오또'의 기록 담당이다. �
 
 [출력]
 JSON만 출력한다. 설명을 덧붙이지 않는다.
-{{"slots": {{{_SLOT_EXAMPLE}}}, "summary": "일기 요약", "just_felt": false, "finished": false}}"""
+{{"slots": {{{_SLOT_EXAMPLE}}}, "summary": "일기 요약", "just_felt": false, "finished": false, "conflict": false}}"""
 
 REPLY_PROMPT = """너는 감정 일기 앱 '오또'의 캐릭터 탄카츄다.
 사용자와 영상통화로 오늘 있었던 일을 이야기한다. 너는 친한 친구처럼 들어주는 쪽이다.
@@ -167,6 +189,8 @@ REPLY_PROMPT = """너는 감정 일기 앱 '오또'의 캐릭터 탄카츄다.
 - 방금 들은 시간·장소·사람을 그대로 되풀이하지 않는다.
   예: "오늘 오후 회사 회의실이요" → "오늘 오후 회사 회의실에서 어떤 일이 있었어요?"(X), "아, 회의실에서요."(O)
 - 상담, 조언, 해석, 평가를 하지 않는다.
+- 다툰 상대에 대해 물을 때 누가 옳은지 따지거나 상대 편을 들지 않는다. "그래도 상대도 사정이 있었겠죠"처럼
+  사용자를 설득하지 않고, 상대가 한 말이나 상황을 사실로만 묻는다.
 
 [대화 예시 — 다른 이야기다. 말투만 참고한다]
 사용자: 오늘 동생이랑 마트 갔는데 지갑을 두고 와서 진짜 황당했어요.
@@ -219,13 +243,20 @@ class InterviewTurn:
     slots: dict[str, str | None] = field(default_factory=dict)
     # 지금까지 들은 이야기의 요약(보여주기용). 못 만든 차례면 None.
     summary: str | None = None
+    # 누군가와 부딪힌 이야기인지 — 갈등 칸을 묻고 빈 칸으로 알릴지 정한다.
+    conflict: bool = False
 
     @property
     def missing(self) -> list[str]:
-        """빈 칸. 칸을 알 수 없으면 빈 목록 — 빈 칸이 없다는 뜻이 아니다."""
+        """빈 칸. 칸을 알 수 없으면 빈 목록 — 빈 칸이 없다는 뜻이 아니다.
+        갈등이 아닌 날의 갈등 칸은 비어 있어도 빈 칸이 아니다."""
         if not self.slots:
             return []
-        return [name for name in SLOTS if not self.slots.get(name)]
+        return [
+            name
+            for name in SLOTS
+            if not self.slots.get(name) and (self.conflict or name not in CONFLICT_SLOTS)
+        ]
 
 
 @dataclass
@@ -236,6 +267,7 @@ class _Facts:
     summary: str | None
     just_felt: bool
     finished: bool
+    conflict: bool = False
 
 
 @dataclass
@@ -316,13 +348,20 @@ def _extract(history: Sequence[InterviewMessage], user_text: str) -> _Facts:
         summary=summary.strip() if isinstance(summary, str) and summary.strip() else None,
         just_felt=data.get("just_felt") is True,
         finished=data.get("finished") is True,
+        conflict=data.get("conflict") is True,
     )
 
 
 def _plan(
     facts: _Facts, history: Sequence[InterviewMessage], user_text: str, remaining: int
 ) -> _Plan:
-    missing = [n for n in SLOTS if not facts.slots.get(n) and n not in OPTIONAL_SLOTS]
+    missing = [
+        n
+        for n in SLOTS
+        if not facts.slots.get(n)
+        and n not in OPTIONAL_SLOTS
+        and (facts.conflict or n not in CONFLICT_SLOTS)
+    ]
     last = _last_oddo_text(history)
     # 맞장구만 하는 차례는 연달아 하면 대화가 멈춘 것처럼 들려서, 직전에 물었을 때만 둔다.
     may_listen = bool(_TRAILING_OFF.search(user_text.strip())) and "?" in last
@@ -355,9 +394,11 @@ def _task(plan: _Plan) -> str:
         # 칸 설명("일이 어떻게 흘러갔는지")을 주면 그대로 베껴 묻는다 — 묻는 말 예시만 준다.
         names = "\n".join(f"- {name}: 묻는 말 예 \"{SLOT_QUESTIONS[name]}\"" for name in plan.targets)
         feeling = any(name in FEELING_SLOTS for name in plan.targets)
+        other = any(name in CONFLICT_SLOTS for name in plan.targets)
         return (
             f"짧게 반응한 뒤, 다음 중 이야기 흐름에 맞는 하나를 이야기에 맞춰 묻는다.\n{names}"
             + ("\n기분을 묻는다면 그 순간을 콕 집어, 감정 단어 없이 묻는다." if feeling else "")
+            + ("\n상대에 대해 묻는다면 누가 옳은지 따지지 않고 사실만 묻는다." if other else "")
         )
     if plan.kind == "listen":
         return "질문하지 않는다. 짧게 맞장구치며 이어서 들려달라고 한다. 물음표를 쓰지 않는다."
@@ -441,6 +482,8 @@ def next_turn(history: Sequence[InterviewMessage], user_text: str) -> InterviewT
         logger.warning("diary interview fell back to a fixed line: %s", type(exc).__name__)
         return _fallback(asked, remaining, _just_asked_wrap_up(history))
 
+    if facts.conflict:
+        remaining = max(MAX_FOLLOW_UPS + CONFLICT_EXTRA_FOLLOW_UPS - asked, 0)
     plan = _plan(facts, history, user_text, remaining)
     user_said = " ".join([*(m.text for m in history if m.speaker == "user"), user_text])
     try:
@@ -455,5 +498,9 @@ def next_turn(history: Sequence[InterviewMessage], user_text: str) -> InterviewT
         logger.warning("diary interview reply fell back to a fixed line: %s", type(exc).__name__)
         reply = _fixed_line(plan)
     return InterviewTurn(
-        reply=reply, done=plan.kind == "close", slots=facts.slots, summary=facts.summary
+        reply=reply,
+        done=plan.kind == "close",
+        slots=facts.slots,
+        summary=facts.summary,
+        conflict=facts.conflict,
     )
