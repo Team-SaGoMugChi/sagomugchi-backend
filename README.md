@@ -269,3 +269,21 @@ Set `CLOVA_VOICE_CLIENT_ID` and `CLOVA_VOICE_CLIENT_SECRET` on the server only
 Missing configuration returns 503; provider failure returns 502; invalid input returns 422.
 The mobile app falls back to its device voice on unavailable synthesis.
 Deploy this endpoint alongside the frontend onboarding update before checking real voices.
+
+### 탄카츄 목소리 Fish Audio로 교체 (2026-11-07)
+
+`FISH_API_KEY`가 있으면 `/tts`는 Fish Audio로 읽는다. 앱이 보내는 `speaker`(CLOVA 이름)와 요청 형식은 그대로이고,
+서버가 이름을 말투별 Fish 목소리로 바꾼다(`app/api/routes/tts.py`의 `FISH_VOICES`).
+Fish가 실패하면 CLOVA Voice(키가 있을 때), 그것도 안 되면 앱의 기기 음성으로 읽는다.
+`speed`는 CLOVA 한 칸 = Fish 0.1배로 바꾼다(-2 → 1.2배). 한 문장 약 2초 걸린다.
+
+| 말투 | speaker | Fish 목소리 |
+|---|---|---|
+| 친근하고 따뜻한 | `nara` | 명랑한 어린이 |
+| 차분하고 진중한 | `njinho` | 사색하는 목소리 |
+| 밝고 에너지 넘치는 | `nminyoung` | mi 목소리 |
+| 간결하고 솔직한 | `ndonghyun` | 동자승 |
+
+> ⚠ **앱 배포 전 반드시 교체.** 4종 모두 다른 사용자가 Fish에 올린 공개 목소리(`licensed: false`)라 상업 이용 권리가 확인되지 않았다.
+> Fish 약관상 무료 계정은 비상업 용도만 허용되고, 남이 올린 콘텐츠는 주인 동의가 필요하다. 원본 녹음의 화자도 알 수 없다.
+> 지금은 학술제·시연(비상업)용으로만 쓴다. 출시 전에는 동의서를 받은 자체 녹음 목소리 + 유료 플랜으로 바꾼다.
