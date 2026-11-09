@@ -95,6 +95,51 @@ def _extract_audio(src: Path, dest: Path, *, seconds: float) -> bool:
     return proc.returncode == 0 and dest.exists() and dest.stat().st_size > 0
 
 
+SPEECH_PAD_SECONDS = 0.15  # 지운 말소리 앞뒤로 조금 더 지운다(말끝이 새지 않게)
+
+
+def _mute_speech(path: Path, *, seconds: float) -> list[tuple[float, float]]:
+    """대사 없는 컷의 Veo 소리에서 말소리 구간을 지운다(주변 소리는 남긴다). 지운 구간을 돌려준다.
+
+    나레이션 컷의 장면 소리에 Veo가 지어낸 "네", "어"가 섞여 나레이션 사이사이에 들렸다
+    (2026-11 할머니 텃밭: 컷 1·3 "네", 컷 5 뒤 "어", 끝에 "네")."""
+    spans = speech_segments(_load_mono(path, seconds))
+    if not spans:
+        return []
+    spans = [(max(0.0, a - SPEECH_PAD_SECONDS), min(seconds, b + SPEECH_PAD_SECONDS)) for a, b in spans]
+    return spans if _mute_spans(path, spans) else []
+
+
+BLIP_MAX_SECONDS = 0.6  # 대사 앞에 이만큼 짧게 따로 들리는 소리("야", "네")는 지어낸 말로 본다
+BLIP_GAP_SECONDS = 0.3
+
+
+def _mute_leading_blip(path: Path, *, seconds: float) -> None:
+    """대사 컷 맨 앞, 대사와 떨어져 짧게 들리는 소리를 지운다(2026-11 할머니 텃밭 컷 4 "약 … 이건 연한")."""
+    spans = speech_segments(_load_mono(path, seconds))
+    if len(spans) >= 2 and spans[0][1] - spans[0][0] <= BLIP_MAX_SECONDS \
+            and spans[1][0] - spans[0][1] >= BLIP_GAP_SECONDS:
+        _mute_spans(path, [(max(0.0, spans[0][0] - 0.05), spans[0][1] + 0.05)])
+
+
+SCRIPT_END_PAD_SECONDS = 0.12
+VOICE_GAP_SECONDS = 0.5  # 다른 목소리 사이에 쉬는 최소 틈  # 대본 마지막 글자가 끝나고 조금 뒤부터 지운다
+
+
+def _mute_spans(path: Path, spans: list[tuple[float, float]]) -> bool:
+    """소리 파일에서 그 구간들만 소리를 0으로 만든다(길이는 그대로)."""
+    enable = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in spans)
+    muted = path.with_name(f"{path.stem}_muted{path.suffix}")
+    proc = subprocess.run(
+        [_ffmpeg(), "-y", "-i", str(path), "-af", f"volume=0:enable='{enable}'", str(muted)],
+        capture_output=True, text=True, check=False, stdin=subprocess.DEVNULL,
+    )
+    if proc.returncode == 0 and muted.exists():
+        muted.replace(path)
+        return True
+    return False
+
+
 def _level_gain(path: Path, target_db: float, max_gain_db: float = 20.0) -> float:
     """장면 소리를 target_db(RMS)로 맞추는 이득. 거의 무음이면 키우지 않는다(잡음만 커진다)."""
     with wave.open(str(path), "rb") as wf:
@@ -250,6 +295,8 @@ def compose(
     voices: dict[int, Path] = {}  # 대사 컷마다 실제로 나가는 소리(자막 시각용)
     # (파일, 시작 시각 ms, 볼륨 dB)
     audios: list[tuple[Path, int, float]] = []
+    narration_at: dict[int, float] = {}  # 나레이션이 실제로 들어가는 시각(자막도 여기에 맞춘다)
+    voice_end = -VOICE_GAP_SECONDS  # 지금까지 놓은 목소리가 끝나는 시각(처음엔 없음)
     for cut, start, length in zip(sb.cuts, starts, seconds):
         src = job.cut_video(cut.index)
         if not src.exists():
@@ -269,7 +316,15 @@ def compose(
                 if cut.is_dialogue:
                     gain = 0.0
                     voices[cut.index] = voice
+                    # 컷이 짧아 덧붙인 말을 잘라 내지 못하면 소리만 지운다(2026-11 할머니 텃밭 컷 6 "…먹자 야").
+                    _mute_leading_blip(voice, seconds=length)
+                    end = _check_value(job, cut.index, "voice_check.json", "script_end")
+                    if end is not None and end + SCRIPT_END_PAD_SECONDS < length:
+                        _mute_spans(voice, [(end + SCRIPT_END_PAD_SECONDS, length)])
                 else:
+                    if (muted := _mute_speech(voice, seconds=length)):
+                        log.info("컷 %d 장면 소리의 말소리를 지움: %s", cut.index,
+                                 ", ".join(f"{a:.1f}~{b:.1f}s" for a, b in muted))
                     target = (
                         settings.veo_ambient_gain_db
                         if cut.index in under_voice
@@ -277,9 +332,20 @@ def compose(
                     )
                     gain = _level_gain(voice, target)
                 audios.append((voice, start_ms, gain))
+        # 앞사람 목소리가 끝나고 VOICE_GAP_SECONDS는 쉬고 다음 목소리를 놓는다. 할머니 대사가 컷 끝까지 이어진 바로
+        # 뒤 0.3초 만에 나레이션이 들어와 겹쳐 들렸다(2026-11 할머니 텃밭 컷 6→7).
+        if cut.is_dialogue and (spoken := voices.get(cut.index)) is not None:
+            segs = speech_segments(_load_mono(spoken, length))
+            end = _check_value(job, cut.index, "voice_check.json", "script_end") if spoken.name.endswith("_veo.wav") else None
+            if segs:
+                voice_end = start + min(segs[-1][1], end if end is not None else segs[-1][1])
         narration = narrations.get(cut.index)
         if narration is not None and not cut.is_dialogue:
-            audios.append((narration, start_ms + delay_ms, 0.0))
+            at = max(start + delay_ms / 1000, voice_end + VOICE_GAP_SECONDS)
+            narration_at[cut.index] = at
+            audios.append((narration, int(at * 1000), 0.0))
+            segs = speech_segments(_load_mono(narration, 30))
+            voice_end = at + (segs[-1][1] if segs else 0.0)
         log.info("컷 %d 준비 완료 (%.1fs부터, %.2fs)", cut.index, start, length)
 
     # 배경음악: 편집 계획의 구간마다 한 곡을 작게 깐다.
@@ -354,7 +420,7 @@ def compose(
     _run(args)
     try:
         write_subtitles(sb, job, starts=starts, total=total, narrations=narrations, voices=voices,
-                        narration_delay=delay_ms / 1000, lengths=seconds)
+                        narration_delay=delay_ms / 1000, lengths=seconds, narration_at=narration_at)
     except Exception:  # 자막은 덧붙는 산출물이다. 실패해도 영상은 완성으로 둔다.
         log.exception("자막 만들기 실패 — 영상은 그대로 완성")
 

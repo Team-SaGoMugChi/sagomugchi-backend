@@ -65,6 +65,8 @@ MAX_GAIN_DB = 12.0
 # 바꾼 구간의 Veo 말소리는 끈다. 0.015(약 -36dB)로 줄이기만 했더니 덧붙인 말이 작게 들린 뒤 TTS가
 # 나와 같은 말을 두 번 하는 것처럼 들렸다(2026-11 강의실 일기 컷 2).
 VEO_VOICE_GAIN = 0.0
+# 이 이유로 틀렸을 때만 TTS로 바꾼다(그 밖에는 조금 틀려도 Veo 목소리를 쓴다).
+TTS_ONLY_REASONS = ("목소리 성별이 다름", "말소리를 못 들음", "들을 수 없음")
 # Veo 목소리 확인 기준 (dialogue_voice="auto")
 # 대본보다 이만큼(또는 대본의 10%) 넘게 길게 들리면 말을 덧붙인 것. 20%로는 대사 끝에 붙은
 # "한기유"(3글자)를 놓쳤다(2026-10-21).
@@ -369,7 +371,9 @@ async def _find_script_end(cut: Cut, script: str, heard_text: str, clip: Path, *
             log.warning("컷 %d 대본 끝을 찾지 못했다: %s", cut.index, exc)
             return None
         ref, hyp = _letters(script), _letters(heard.text)
-        if not script_prefix_ok(script, heard.text):
+        # 잘라 낸 곳에서 대본이 끝까지 들려야 한다. 대본 기준 오차(25%)로 보면 마지막 "미안해"(3글자)가 빠진 것도
+        # 통과해 대사 끝이 잘렸다(2026-11 카페 컷 4). 한 글자 정도만 놓쳐도 되게 한다.
+        if len(hyp) < len(ref) - 1 or _edit_distance(ref, hyp[: len(ref)]) > max(1, len(ref) // 10):
             continue
         if len(hyp) - len(ref) <= max(EXTRA_CHARS_MIN, len(ref) * EXTRA_CHARS_RATIO):
             return end
@@ -412,7 +416,9 @@ async def judge_veo_voice(
     script_end = None
     extra = len(_letters(heard.text)) > len(_letters(script))
     gender_ok = not (gender and heard.voice and heard.voice != gender)
-    if extra and gender_ok and reason != CUT_OFF_REASON and script_prefix_ok(script, heard.text):
+    # 덧붙인 말이 컷 끝까지 이어져 "잘림"으로 판단된 경우도 대본 끝을 찾는다 — 찾으면 그 뒤를 지우고 쓴다
+    # (2026-11 할머니 텃밭 컷 2 "…왔나 두고", 두 번 다시 만들어도 같았다).
+    if extra and gender_ok and script_prefix_ok(script, heard.text):
         script_end = await _find_script_end(cut, script, heard.text, clip, listen=listen, job=job)
         if script_end is not None:
             ok, reason = True, f"대본 뒤에 덧붙인 말은 {script_end:.2f}초에서 잘라 냄"
@@ -480,13 +486,18 @@ async def dub_dialogue(
         return chosen
 
     async def keep_veo_voice(cut: Cut) -> bool:
-        """Veo 목소리를 그대로 써도 되면 True. 영상 단계가 이미 들어 봤으면(voice_check.json) 그 판단을 쓴다."""
+        """Veo 목소리를 그대로 써도 되면 True. 영상 단계가 이미 들어 봤으면(voice_check.json) 그 판단을 쓴다.
+
+        다시 만들어도 조금 틀린(한 글자 더 붙음, 끝이 빠듯함) 목소리도 Veo 것을 쓴다. TTS로 바꾸면 그 인물만
+        나레이션 같은 목소리가 되어 더 어색했다(2026-11 할머니 텃밭 컷 2, 사용자 지적). TTS는 목소리 성별이
+        틀렸거나 말소리가 아예 없을 때만 쓴다."""
         record = job.cut_dir(cut.index) / "voice_check.json"
         if record.exists() and not force:
-            return bool(json.loads(record.read_text(encoding="utf-8"))["keep_veo_voice"])
-        async with sem:
-            verdict = await judge_veo_voice(sb, cut, video=job.cut_video(cut.index), listen=listen, job=job)
-        return verdict["keep_veo_voice"]
+            verdict = json.loads(record.read_text(encoding="utf-8"))
+        else:
+            async with sem:
+                verdict = await judge_veo_voice(sb, cut, video=job.cut_video(cut.index), listen=listen, job=job)
+        return bool(verdict["keep_veo_voice"]) or not str(verdict.get("reason", "")).startswith(TTS_ONLY_REASONS)
 
     async def one(cut: Cut) -> tuple[int, Path | None]:
         dest = job.cut_dialogue(cut.index)

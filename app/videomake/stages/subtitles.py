@@ -64,6 +64,7 @@ def build_cues(
     voices: dict[int, Path],
     narration_delay: float,
     lengths: list[float] | None = None,
+    narration_at: dict[int, float] | None = None,
 ) -> list[Cue]:
     """voices: 대사 컷마다 실제로 나가는 소리 파일(더빙 또는 영상 소리).
     lengths: 정적을 잘라낸 뒤 컷마다 실제 길이(compose.edit_lengths). 없으면 컷 원래 길이."""
@@ -74,7 +75,7 @@ def build_cues(
         if cut.narration and cut.index in narrations:
             seconds = _wav_seconds(narrations[cut.index])
             if seconds:
-                s = start + narration_delay
+                s = (narration_at or {}).get(cut.index, start + narration_delay)
                 cues.append(Cue(s, min(s + seconds, total), cut.narration))
         elif cut.dialogue:
             segments = []
