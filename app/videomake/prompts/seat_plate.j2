@@ -1,0 +1,36 @@
+Generate a background plate for one camera position in an animated short: the place itself with nobody in it.
+
+ATTACHED REFERENCE IMAGES (in this order):
+1. Location reference sheet: the same place seen from four sides.
+Use it to know what each side of the place looks like and to keep the place exactly the same.
+Do NOT copy any panel's viewpoint or the sheet's grid layout.
+2. The side of the place this camera faces, cut from the sheet. Everything behind the seat is exactly this
+(walls, windows, furniture, its count and arrangement, lights); only the camera comes closer.
+
+PLACE:
+{{ location.description }}
+{% if location.floor_plan | default("") -%}
+FLOOR PLAN (keep exactly this arrangement and these counts): {{ location.floor_plan }}
+{% endif %}
+CAMERA:
+{{ camera }}
+The camera is at seated chest height, close to {{ seat }}.
+That seat is empty and sits in the lower middle of the frame, with the near edge of its table at the bottom.
+Behind it you see the {{ side }} side of the place, exactly as the location sheet shows that side.
+{% if time_of_day == "night" -%}
+It is night: the windows show a dark night sky and the room is lit by its own lamps.
+{% elif time_of_day == "day" -%}
+It is daytime: daylight comes in through the windows.
+{% endif %}{% if sunny | default(false) -%}
+Bright warm sunlight falls from one side with clear soft shadows, not a flat overcast light.
+{% endif %}
+NOBODY is in this picture: no people, no customers, no hands, no shoulders, no reflections of people.
+Only the place and its furniture.
+This plate is the fixed background for every shot of the person who sits in that seat.
+
+{{ 'Vertical' if aspect_ratio == '9:16' else 'Horizontal' }} {{ aspect_ratio }} composition.
+ONE continuous view from one camera fills the whole frame: never panels, a split screen, a collage or stacked pictures.
+No text, labels or captions.
+
+STYLE:
+{{ style_block }}

@@ -22,7 +22,8 @@ figures, posters and screens; a crowded room can have many people, list only the
   "gender": "m" or "f" ("" if you cannot tell),
   "height_ratio": the visible height of that person (from the top of the head to the lowest visible part)
                   divided by the image height, between 0 and 1,
-  "legs_visible": true if that person's knees, lower legs or feet are visible in the image.
+  "legs_visible": true if that person's knees, lower legs or feet are visible in the image,
+  "from_behind": true if that person is seen from behind (the back of their head toward the camera).
 "looks_at_camera": true if any of the main, clearly visible people looks directly into the camera
   (small people far in the background of a crowded place do not count).
 "split_frame": true if the image is divided into two or more separate pictures or panels (stacked, side by side,
@@ -31,10 +32,18 @@ figures, posters and screens; a crowded room can have many people, list only the
   from, or right next to, the largest person, where a companion would sit.
 "foreground_back": true if someone is seen from behind close to the camera, in the foreground or at an edge of
   the image (the back of a head, a shoulder or an arm), as in an over-the-shoulder shot.
+"on_screen_text": true if letters or words are drawn over the picture like subtitles, captions or speech bubbles
+  (ignore signs, menus, books and screens that are part of the scene).
+"window_side": "left" if the big windows (a glass window wall) are along the left side of the image, "right" if
+  along the right side, "" if they are straight ahead, on both sides or not visible.
 "time_of_day": "day" if windows or doorways show daylight (a bright sky or sunlight coming in), "night" if they show
   a dark sky (black or deep dark blue), "" if no window or outdoor view is visible or you cannot tell.
+"door_view": if a glass door or glass entrance is clearly visible, "outside" if through it you see the outdoors
+  (a street, buildings, the sky), "inside" if through it you see the inside of a room (tables, chairs, a counter,
+  seated people); "" if no such door is visible.
 {"people": [{"gender": "m", "height_ratio": 0.6, "legs_visible": false}], "looks_at_camera": false, "split_frame": false,
- "empty_seat": false, "foreground_back": false, "time_of_day": ""}"""
+ "empty_seat": false, "foreground_back": false, "on_screen_text": false, "window_side": "", "time_of_day": "",
+ "door_view": ""}"""
 
 # 장소 확인: 두 번째 그림은 그 장소를 네 방향에서 본 시트다. 같은 곳인지, 어느 벽을 보는지 답한다.
 PLACE_PROMPT = """
@@ -69,6 +78,27 @@ Also answer:
   edge of the image close to the camera (for example half a face, a blurred shoulder or arm at the very edge).
 {{"people": [...], "looks_at_camera": false, "duplicate_person": false, "unknown_person": false,
   "cut_off_person": false}}"""
+
+# 옷 확인: 한 컷만 엄마가 코트를 의자에 걸고 블라우스 차림으로 그려졌다(2026-11 칼국수집 컷 5).
+OUTFIT_PROMPT = """
+What each named person wears in every shot:
+{outfits}
+"outfit_mismatch": the names of the people above who are visible and whose clothes clearly differ from what is
+  written: an outer layer (coat, jacket, blazer, cardigan, apron) is missing or taken off, or a different garment
+  or color. Ignore small details, and leave out anyone not visible or seen only from behind.
+{{"outfit_mismatch": []}}"""
+
+# 지시 확인: 컷마다 바구니 위치와 자세가 바뀌어 시간이 건너뛴 것처럼 보였다(2026-11 할머니 텃밭).
+SCENE_PROMPT = """
+The image was drawn from this instruction:
+{scene}
+"scene_mismatch": short notes on clear contradictions with the instruction about each named person's posture
+  (standing, sitting, crouching) or who holds which object and where an object is (for example "the basket is
+  in her hands but should be on the ground between them"). Ignore camera angle, framing, style and small details.
+  Empty list if it matches.
+"sunlight": true if warm direct sunlight with visible shadows lights the scene, false if the light is flat and
+  overcast, null if you cannot tell or it is indoors at night.
+{{"scene_mismatch": [], "sunlight": null}}"""
 
 # 샷 사이 연결 확인: 영상 모델은 샷이 바뀌면 장면을 새로 꾸며 물건을 없애거나 손을 진열대 위로 옮긴다(관측).
 CONTINUITY_PROMPT = """These frames are in time order from one short film clip. Each is labelled with its time
@@ -107,6 +137,10 @@ class GeminiLookProvider:
                 text += SEAT_PROMPT.format(seats="\n".join(f"- {s}" for s in place.seats))
         if cast is not None:
             text += CAST_PROMPT.format(people="\n".join(f"- {p}" for p in cast.people))
+            if cast.scene:
+                text += SCENE_PROMPT.format(scene=cast.scene)
+            if cast.outfits:
+                text += OUTFIT_PROMPT.format(outfits="\n".join(f"- {o}" for o in cast.outfits))
         contents.append(text)
 
         async def call():
@@ -117,10 +151,19 @@ class GeminiLookProvider:
             )
 
         try:
-            data = parse_heard((await retry_on_rate_limit(call, what="그림 확인", timeout=90)).text)
+            # 답이 깨진 JSON으로 오는 일이 있어 한 번 더 묻는다 — 그대로 실패하면 영상 검사가 통째로 빠졌다
+            # (2026-11 카페 4차 컷 3·7).
+            for tries_left in (1, 0):
+                try:
+                    data = parse_heard((await retry_on_rate_limit(call, what="그림 확인", timeout=90)).text)
+                    break
+                except ValueError:
+                    if not tries_left:
+                        raise
             people = [SeenPerson(gender=str(p.get("gender") or "").lower()[:1],
                                  height_ratio=float(p.get("height_ratio") or 0),
-                                 legs_visible=bool(p.get("legs_visible")))
+                                 legs_visible=bool(p.get("legs_visible")),
+                                 from_behind=p.get("from_behind") is True)
                       for p in data.get("people") or [] if isinstance(p, dict)]
         except Exception as exc:
             raise ProviderError(f"그림 확인 실패 ({self._model}): {exc}") from exc
@@ -132,13 +175,19 @@ class GeminiLookProvider:
             split_frame=data.get("split_frame") is True,
             empty_seat=_flag(data.get("empty_seat")),
             foreground_back=_flag(data.get("foreground_back")),
+            on_screen_text=_flag(data.get("on_screen_text")),
+            window_side=ws if (ws := str(data.get("window_side") or "").lower().strip()) in ("left", "right") else "",
             time_of_day=tod if (tod := str(data.get("time_of_day") or "").lower().strip()) in ("day", "night") else "",
+            door_view=dv if (dv := str(data.get("door_view") or "").lower().strip()) in ("outside", "inside") else "",
             same_place=same if isinstance(same, bool) else None,
             facing=facing if facing in SIDES else "",
             duplicate_person=_flag(data.get("duplicate_person")),
             unknown_person=_flag(data.get("unknown_person")),
             cut_off_person=_flag(data.get("cut_off_person")),
             wrong_seat=[str(n) for n in data.get("wrong_seat") or [] if isinstance(n, str)],
+            scene_mismatch=[str(n) for n in data.get("scene_mismatch") or [] if isinstance(n, str)],
+            sunlight=_flag(data.get("sunlight")),
+            outfit_mismatch=[str(n) for n in data.get("outfit_mismatch") or [] if isinstance(n, str)],
         )
 
     async def continuity(self, *, frames: Sequence[TimedFrame], scene: str) -> list[str]:

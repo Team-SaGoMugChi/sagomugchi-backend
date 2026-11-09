@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from decimal import Decimal
 from pathlib import Path
@@ -18,7 +19,8 @@ from ..job import JobStore
 from ..models import Stage, Storyboard, VideoHandle
 from ..prompts import PromptLibrary
 from ..providers.base import ListenProvider, LookProvider, VideoProvider, is_rate_limited
-from .cut_images import mood_subject, solo_listener_side, voice_off_screen
+from .cut_images import check_people, mood_subject, ots_partner, solo_listener_side, voice_off_screen
+from .pronounce import romanize
 from .dialogue_voice import _load_mono, judge_veo_voice, speech_segments
 from .video_check import check_cut_video
 
@@ -58,6 +60,18 @@ def intruder_too_early(cut, video: Path, clean_until: float | None) -> bool:
 
 # 안전 필터 거절 문구. Veo: "the input image violates Vertex AI's usage guidelines"(code 3, 과금 없음),
 # 영상 없이 끝난 작업: fetch의 "안전 필터 사유". 서버 과부하 같은 실패와 구별해 그림을 바꿔 다시 시도한다.
+_SITS = re.compile(r"\b(sits|sit|seated|sitting)\b", re.IGNORECASE)
+_RISES = re.compile(r"\b(stands? up|gets? up|rises|rise|stand|walks?|leaves?|leave)\b", re.IGNORECASE)
+
+
+def stays_seated(cut) -> bool:
+    """첫 그림에서 앉아 있고 동작 지시에 일어서는 말이 없으면 끝까지 앉아 있어야 한다.
+
+    사과하며 고개를 끄덕이라고만 했는데 Veo가 대사 끝에 사람을 일으켜 세웠고, 다음 컷에서는 다시 앉아
+    있었다(2026-11 카페 4차 컷 3)."""
+    return bool(_SITS.search(cut.image_prompt)) and not _RISES.search(cut.motion_prompt)
+
+
 _BLOCK_WORDS = ("usage guidelines", "안전 필터")
 
 
@@ -126,6 +140,7 @@ async def render_cut_videos(
                 lines.append({
                     "speaker": line.speaker,
                     "text": line.text,
+                    "roman": romanize(line.text),
                     "voice": getattr(profile, "voice", ""),
                     "position": positions.get(line.speaker),
                     "look": look,
@@ -143,15 +158,17 @@ async def render_cut_videos(
                     if (p := sb.character(m.name))
                 ] if cut.shots else [],
                 # 이 컷에 나오는 사람 명단. 영상 AI가 같은 사람을 둘로 만들거나 없던 사람을 넣지 않게 한다.
-                people=[
-                    (p.appearance.split(".")[0].strip() if (p := sb.character(m.name)) else m.name)
-                    for m in sb.visible_cast(cut)
-                ],
+                people=check_people(sb, cut),
+                partner_look=(
+                    (p.appearance.split(".")[0].strip() if (p := sb.character(partner.name)) else partner.name)
+                    if (partner := ots_partner(sb, cut)) else ""
+                ),
                 dialogue=lines,
                 background_people=crowd,
                 solo_side=solo_listener_side(sb, cut, sb.visible_cast(cut)),
                 ambient=settings.veo_audio == "ambient",
                 listening=listening,
+                stays_seated=stays_seated(cut),
                 mood_line=prompts.render(
                     "mood.j2", mood=cut.mood, name=mood_subject(sb, cut), part="motion"
                 ),
@@ -282,10 +299,12 @@ async def render_cut_videos(
                     job.cut_handle(cut.index).unlink(missing_ok=True)
                     waiting.append(cut)
                     continue
-            if intruder_too_early(cut, dest, check.clean_until) and redone.get(cut.index, 0) < INTRUDER_REDO:
+            if (intruder_too_early(cut, dest, check.clean_until) or check.text_at is not None) \
+                    and redone.get(cut.index, 0) < INTRUDER_REDO:
                 # 대사·화면이 끝나기 전에 화면 끝에 낯선 사람이 들어왔다 — 잘라 낼 수 없어 한 번 다시 만든다.
                 redone[cut.index] = redone.get(cut.index, 0) + 1
-                log.warning("컷 %d: %.1f초에 화면 끝에 사람이 들어와 다시 만든다", cut.index, check.clean_until)
+                log.warning("컷 %d: 화면 끝 사람(%s초)·화면 글자(%s초) 때문에 다시 만든다",
+                            cut.index, check.clean_until, check.text_at)
                 results.pop(cut.index, None)
                 dest.unlink(missing_ok=True)
                 job.cut_handle(cut.index).unlink(missing_ok=True)

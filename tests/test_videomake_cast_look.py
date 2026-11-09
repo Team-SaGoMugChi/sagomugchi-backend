@@ -87,14 +87,15 @@ def test_split_frame_is_redrawn_and_prompt_forbids_panels():
     assert "do NOT copy its grid layout" in text and "never panels" in text
 
 
-def test_only_framing_or_wall_problems_do_not_redraw():
+def test_only_framing_problems_do_not_redraw():
     from app.videomake.stages.cut_images import MEDIUM_PROBLEM, needs_redraw
 
     sb = _sb()
     cut = sb.cuts[0]
     wall = "The camera must face the left side of the place as written in SCENE, not the far side."
-    assert not needs_redraw(cut, [wall])
-    assert not needs_redraw(cut.model_copy(update={"dialogue": []}), [MEDIUM_PROBLEM, wall])
+    # 다른 벽을 그리면 같은 자리인데 배경이 달라져 다시 그린다(2026-11 카페).
+    assert needs_redraw(cut, [wall])
+    assert not needs_redraw(cut.model_copy(update={"dialogue": []}), [MEDIUM_PROBLEM])
     assert needs_redraw(cut, [wall, "Someone looks into the camera. Nobody may look at the camera."])
     from app.videomake.models import Line
 
@@ -187,11 +188,11 @@ def test_seated_person_must_stay_at_their_seat():
     assert image_problems(sb, seated, _seen(same_place=True, facing="left")) == []
 
 
-def test_solo_speaker_shot_hides_the_empty_seat_and_keeps_the_time_of_day():
-    """혼자 보이는 대사 컷: 빈 맞은편 자리가 보이면 다시 그리고, 앞 컷 그림은 참고로 주지 않는다.
+def test_dialogue_shot_is_over_the_shoulder_and_keeps_the_time_of_day():
+    """대사 컷은 어깨너머 샷: 상대 뒷모습이 앞쪽에 있어야 하고(없으면 상대가 사라져 보인다), 빈 자리는 안 된다.
     밤 장면이 대낮으로 그려지면 다시 그린다."""
     from app.videomake.models import CastMember, Line
-    from app.videomake.stages.cut_images import planned_time, solo_listener_side
+    from app.videomake.stages.cut_images import check_people, ots_partner, planned_time, solo_listener_side
 
     sb = _sb()
     friend = sb.protagonist.model_copy(update={"name": "수아"})
@@ -206,24 +207,333 @@ def test_solo_speaker_shot_hides_the_empty_seat_and_keeps_the_time_of_day():
                                 "image_prompt": "Camera faces the left side. 서연 sits at the table, evening."})
     sb = sb.model_copy(update={"cuts": [pair, talk, *sb.cuts[2:]]})
     assert solo_listener_side(sb, talk, sb.visible_cast(talk)) == "right"
+    assert ots_partner(sb, talk) == CastMember(name="수아", position="right")
+    assert any("seen from behind" in p for p in check_people(sb, talk))
 
-    close = _seen(same_place=True, facing="left").model_copy(update={"people": [
-        _seen().people[0].model_copy(update={"height_ratio": 0.7, "legs_visible": False})]})
-    assert image_problems(sb, talk, close) == []
-    empty = close.model_copy(update={"empty_seat": True})
+    speaker = _seen().people[0].model_copy(update={"height_ratio": 0.7, "legs_visible": False, "gender": ""})
+    ots = _seen(same_place=True, facing="left").model_copy(update={"people": [speaker, speaker],
+                                                                   "foreground_back": True})
+    assert image_problems(sb, talk, ots) == []
+    alone = ots.model_copy(update={"people": [speaker], "foreground_back": False})
+    assert any("seen from behind" in p for p in image_problems(sb, talk, alone))  # 상대가 사라졌다
+    empty = ots.model_copy(update={"empty_seat": True})
     assert any("empty chair" in p for p in image_problems(sb, talk, empty))
-    # 허리 위로는 부족하다 — 가슴 위로 가깝게(맞은편 자리가 안 보이게).
-    waist = close.model_copy(update={"people": [close.people[0].model_copy(update={"height_ratio": 0.4})]})
-    assert any(p.startswith("This must be a MEDIUM") for p in image_problems(sb, talk, waist))
 
     assert planned_time(talk) == "night"
-    sunny = close.model_copy(update={"time_of_day": "day"})
+    sunny = ots.model_copy(update={"time_of_day": "day"})
     assert any(p.startswith("It is night") for p in image_problems(sb, talk, sunny))
 
-    prompt, refs = cut_image_request(sb, talk, sheets={}, location_sheets={}, prompts=get_prompts(),
-                                     aspect_ratio="9:16")
-    assert "never show an empty chair" in prompt and "chest up" in prompt
-    assert "NOT an over-the-shoulder shot" in prompt and "over-the-shoulder shot from behind" not in prompt
-    back = close.model_copy(update={"foreground_back": True})
-    assert any("not an over-the-shoulder" in p for p in image_problems(sb, talk, back))
-    assert not any("over-the-shoulder" in p for p in image_problems(sb, sb.cuts[0], back))  # 두 사람 컷은 괜찮다
+    prompt, _ = cut_image_request(sb, talk, sheets={}, location_sheets={}, prompts=get_prompts(), aspect_ratio="9:16")
+    assert "OVER-THE-SHOULDER SHOT" in prompt and "수아" in prompt and "There is no empty chair" in prompt
+
+
+def test_dialogue_shots_keep_one_camera_side_per_seat():
+    """같은 사람 대사 컷은 같은 방향, 마주한 상대는 반대 방향 — 어기면 시나리오를 다시 요청한다."""
+    from app.videomake.guardrails import lint_dialogue_camera
+    from app.videomake.models import CastMember, Line
+
+    sb = _sb()
+    friend = sb.protagonist.model_copy(update={"name": "수아"})
+    sb = sb.model_copy(update={"supporting": [*sb.supporting, friend]})
+    base = sb.cuts[0]
+    me = sb.protagonist.name
+
+    def talk(index, who, side, pos):
+        return base.model_copy(update={
+            "index": index, "narration": None, "dialogue": [Line(speaker=who, text="응.")],
+            "cast": [CastMember(name=who, position=pos)],
+            "image_prompt": f"Camera faces the {side} side, from the table. {who} sits at the table.",
+        })
+
+    pair = base.model_copy(update={"index": 1, "cast": [CastMember(name=me, position="left"),
+                                                        CastMember(name="수아", position="right")]})
+    good = [pair, talk(2, me, "right", "left"), talk(3, "수아", "left", "right"), talk(4, me, "right", "left")]
+    assert lint_dialogue_camera(sb.model_copy(update={"cuts": good})) == []
+    moved = [*good[:3], talk(4, me, "entrance", "left")]
+    assert any("같은 카메라 방향" in v.rule for v in lint_dialogue_camera(sb.model_copy(update={"cuts": moved})))
+    same = [pair, talk(2, me, "right", "left"), talk(3, "수아", "right", "right")]
+    assert any("반대 방향" in v.rule for v in lint_dialogue_camera(sb.model_copy(update={"cuts": same})))
+
+
+def test_floor_plan_goes_into_sheet_and_cut_prompts():
+    sb = _sb()
+    plan = "Down the middle: two rows of three square tables (six tables)."
+    locs = [loc.model_copy(update={"floor_plan": plan}) for loc in sb.locations]
+    sb = sb.model_copy(update={"locations": locs})
+    cut = sb.cuts[0]
+    sheet = get_prompts().render("location_sheet.j2", description=locs[0].description, floor_plan=plan,
+                                 style_block="")
+    assert plan in sheet and "Count the furniture" in sheet
+    prompt, _ = cut_image_request(sb, cut, sheets={}, location_sheets={}, prompts=get_prompts(), aspect_ratio="9:16")
+    assert plan in prompt
+
+
+def test_side_panel_is_cut_from_the_sheet_and_plates_are_per_seat(tmp_path):
+    """장소 시트에서 그 벽 칸만 잘라 참고로 준다. 대사 컷 배경판은 (장소, 말하는 사람, 방향)마다 한 장."""
+    import shutil
+    import subprocess
+
+    import pytest
+
+    from app.videomake.job import JobStore
+    from app.videomake.models import CastMember, Line
+    from app.videomake.stages.cut_images import plate_key, side_panel
+
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg 필요")
+    sheet = tmp_path / "sheet.png"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=200x200", "-frames:v", "1",
+                    str(sheet)], check=True)
+    job = JobStore(tmp_path, "j")
+    job.dir.mkdir(parents=True, exist_ok=True)
+    panel = side_panel(job, sheet, "right")
+    assert panel is not None and panel.exists()
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0",
+                          str(panel)], capture_output=True, text=True, check=True).stdout.strip()
+    assert out == "100,100"
+    assert side_panel(job, sheet, "") is None
+
+    sb = _sb()
+    friend = sb.protagonist.model_copy(update={"name": "수아"})
+    sb = sb.model_copy(update={"supporting": [*sb.supporting, friend]})
+    me = sb.protagonist.name
+    base = sb.cuts[0]
+    pair = base.model_copy(update={"cast": [CastMember(name=me, position="left"), CastMember(name="수아", position="right")]})
+    talk = sb.cuts[1].model_copy(update={
+        "location": base.location, "narration": None, "dialogue": [Line(speaker=me, text="응.")],
+        "cast": [CastMember(name=me, position="left")], "image_prompt": "Camera faces the right side. 서연 sits."})
+    sb = sb.model_copy(update={"cuts": [pair, talk, *sb.cuts[2:]]})
+    assert plate_key(sb, talk) == (base.location, me, "right")
+    assert plate_key(sb, pair) is None  # 두 사람 컷은 배경판 대신 벽 칸을 쓴다
+
+
+def test_window_side_catches_a_mirrored_room_and_same_seat_keeps_distance():
+    """창이 왼쪽 벽이면 안쪽을 볼 땐 화면 왼쪽, 입구를 볼 땐 화면 오른쪽 — 반대면 다시 그린다."""
+    from app.videomake.guardrails import lint_dialogue_camera
+    from app.videomake.models import CastMember, Line
+    from app.videomake.stages.cut_images import WINDOW_PROBLEM, frame_window_side
+
+    desc = ("Everywhere: beige walls. Entrance side: a glass door. Far side: a counter. "
+            "Left side: tall street-facing windows. Right side: a bookshelf wall.")
+    assert frame_window_side(desc, "far") == "left"
+    assert frame_window_side(desc, "entrance") == "right"
+    assert frame_window_side(desc, "left") == ""  # 창이 정면 — 좌우를 따지지 않는다
+    assert frame_window_side("Left side: windows. Right side: windows.", "far") == ""  # 양쪽이면 모른다
+
+    sb = _sb()
+    locs = [loc.model_copy(update={"description": desc}) for loc in sb.locations]
+    cut = sb.cuts[0].model_copy(update={"image_prompt": "Camera faces the entrance side. 서연 stands."})
+    sb = sb.model_copy(update={"locations": locs, "cuts": [cut, *sb.cuts[1:]]})
+    mirrored = _seen(same_place=True, facing="entrance").model_copy(update={"window_side": "left"})
+    assert WINDOW_PROBLEM.format(want="right") in image_problems(sb, cut, mirrored)
+    right = mirrored.model_copy(update={"window_side": "right"})
+    assert not any("wrong side" in p for p in image_problems(sb, cut, right))
+
+    friend = sb.protagonist.model_copy(update={"name": "수아"})
+    sb = sb.model_copy(update={"supporting": [*sb.supporting, friend]})
+    me = sb.protagonist.name
+
+    def talk(index, distance):
+        return cut.model_copy(update={
+            "index": index, "narration": None, "dialogue": [Line(speaker=me, text="응.")],
+            "cast": [CastMember(name=me, position="left")], "camera_distance": distance,
+            "image_prompt": "Camera faces the right side. 서연 sits."})
+
+    pair = cut.model_copy(update={"cast": [CastMember(name=me, position="left"), CastMember(name="수아", position="right")]})
+    cuts = [pair, talk(2, "medium"), talk(3, "full")]
+    assert any("같은 거리" in v.rule for v in lint_dialogue_camera(sb.model_copy(update={"cuts": cuts})))
+
+
+def test_light_of_later_cuts_is_matched_to_the_first_cut_of_the_place(tmp_path):
+    import shutil
+    import subprocess
+
+    import pytest
+
+    from app.videomake.job import JobStore
+    from app.videomake.stages.cut_images import _mean_rgb, match_light
+
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg 필요")
+    sb = _sb()
+    same = [c for c in sb.cuts if c.location == sb.cuts[0].location]
+    assert len(same) > 1
+    job = JobStore(tmp_path, "j")
+    for c, color in zip(same, ["0x504030", "0x705030"]):
+        job.cut_dir(c.index).mkdir(parents=True, exist_ok=True)
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"color=c={color}:s=64x64",
+                        "-frames:v", "1", str(job.cut_image(c.index))], check=True)
+    match_light(sb, job, {c.index for c in same})
+    r, g, b = _mean_rgb(job.cut_image(same[1].index))
+    assert r < 0x70 * 0.9  # 붉게 뜬 컷이 첫 컷 쪽으로 당겨졌다
+    assert (job.cut_dir(same[1].index) / "image_before_light.png").exists()
+
+
+def _room(path, seed):
+    import cv2
+    import numpy as np
+
+    rng = np.random.default_rng(seed)
+    im = np.full((1280, 720, 3), 200, np.uint8)
+    for _ in range(400):
+        x, y = int(rng.integers(0, 720)), int(rng.integers(0, 1280))
+        color = tuple(int(c) for c in rng.integers(0, 255, 3))
+        cv2.rectangle(im, (x, y), (x + int(rng.integers(8, 60)), y + int(rng.integers(8, 60))), color, -1)
+    cv2.imwrite(str(path), im)
+    return im
+
+
+def test_plate_match_tells_the_same_wall_from_another_wall(tmp_path):
+    import cv2
+
+    from app.videomake.stages.cut_images import PLATE_MIN_MATCH, plate_match
+
+    plate = tmp_path / "plate.png"
+    room = _room(plate, 1)
+    # 같은 벽을 조금 당겨 찍고 사람(가운데 큰 덩어리)을 넣은 그림
+    closer = cv2.resize(room[120:1160, 60:660], (720, 1280))
+    cv2.rectangle(closer, (200, 500), (520, 1280), (40, 40, 40), -1)
+    same = tmp_path / "same.png"
+    cv2.imwrite(str(same), closer)
+    other = tmp_path / "other.png"
+    _room(other, 2)
+    assert plate_match(plate, same) >= PLATE_MIN_MATCH
+    assert plate_match(plate, other) < PLATE_MIN_MATCH
+    assert plate_match(plate, tmp_path / "missing.png") is None
+
+
+def test_exit_door_must_open_to_the_outside():
+    from app.videomake.stages.cut_images import DOOR_PROBLEM
+
+    sb = _sb()
+    cut = sb.cuts[0].model_copy(update={"image_prompt": "Camera faces the entrance side (the glass door). x"})
+    assert DOOR_PROBLEM in image_problems(sb, cut, _seen(door_view="inside"))
+    assert DOOR_PROBLEM not in image_problems(sb, cut, _seen(door_view="outside"))
+    assert DOOR_PROBLEM not in image_problems(sb, sb.cuts[0], _seen(door_view="inside"))  # 문을 보는 컷이 아니면 묻지 않는다
+
+
+def test_seated_people_are_told_to_stay_seated():
+    from app.videomake.stages.video_render import stays_seated
+
+    sb = _sb()
+    seated = sb.cuts[0].model_copy(update={"image_prompt": "서연 sits at the table.",
+                                           "motion_prompt": "서연 gives a small apologetic nod."})
+    leaving = seated.model_copy(update={"motion_prompt": "They stand up and walk to the door."})
+    assert stays_seated(seated) and not stays_seated(leaving)
+    text = get_prompts().render("motion.j2", motion_prompt="x", shots=[], stays_seated=True, mood_line="",
+                             dialogue=[], listening=False, ambient=False)
+    assert "stays seated for the whole clip" in text
+
+
+def test_blurred_band_at_the_bottom_is_found(tmp_path):
+    import cv2
+
+    from app.videomake.stages.cut_images import blurred_edge
+
+    sharp = tmp_path / "sharp.png"
+    room = _room(sharp, 3)
+    smeared = room.copy()
+    smeared[1150:] = cv2.GaussianBlur(room[1150:], (0, 0), 25)
+    band = tmp_path / "band.png"
+    cv2.imwrite(str(band), smeared)
+    assert blurred_edge(sharp) == ""
+    assert blurred_edge(band) == "bottom"
+    assert blurred_edge(tmp_path / "missing.png") == ""
+
+
+def test_location_sheet_must_start_from_the_master_view_unmirrored(tmp_path):
+    import cv2
+    import numpy as np
+
+    from app.videomake.stages.reference_sheets import master_panel_match
+
+    master = tmp_path / "master.png"
+    room = _room(master, 4)
+    def sheet(name, panel):
+        grid = np.full((2560, 1440, 3), 200, np.uint8)
+        grid[:1280, :720] = panel
+        path = tmp_path / name
+        cv2.imwrite(str(path), grid)
+        return path
+    same, flipped = master_panel_match(master, sheet("ok.png", room))
+    assert same > flipped
+    same, flipped = master_panel_match(master, sheet("mirror.png", room[:, ::-1]))
+    assert flipped > same
+
+
+def test_taking_off_a_coat_is_redrawn():
+    from app.videomake.stages.cut_images import OUTFIT_PROBLEM, outfit_of, outfit_lines
+
+    assert outfit_of("A woman in her fifties, short hair. She wears a beige trench coat over a lavender top.") \
+        == "She wears a beige trench coat over a lavender top."
+    assert outfit_of("A man, wearing a navy blazer and jeans.") == "wearing a navy blazer and jeans."
+    sb = _sb()
+    cut = sb.cuts[0]
+    lines = outfit_lines(sb, cut)
+    if not lines:  # 데모 인물의 외모에 옷이 없으면 검사할 것도 없다
+        assert image_problems(sb, cut, _seen(outfit_mismatch=["아무개"])) == image_problems(sb, cut, _seen())
+        return
+    name = lines[0].split(": ", 1)[0]
+    problems = image_problems(sb, cut, _seen(outfit_mismatch=[name]))
+    assert any(p.startswith(OUTFIT_PROBLEM.split("{")[0] + "") or "must wear exactly this outfit" in p for p in problems)
+
+
+def test_quoted_lines_in_the_diary_become_dialogue():
+    from app.videomake.guardrails import lint_diary_quotes
+
+    sb = _sb()
+    said = [d.text for c in sb.cuts for d in c.dialogue]
+    text = "오늘 엄마가 \"" + (said[0] if said else "잘 지냈어") + "\"라고 했다. 나는 \"엄마, 우리 자주 오자\"라고 말했다."
+    missing = lint_diary_quotes(sb, text)
+    assert [v.rule for v in missing] == ["일기 속 대사 누락"] * (1 if said else 2)
+    assert "엄마, 우리 자주 오자" in missing[-1].detail
+    assert lint_diary_quotes(sb, "따옴표 없는 일기") == []
+
+
+def test_shopkeeper_speaks_over_the_protagonists_shoulder():
+    from app.videomake.stages.cut_images import ots_partner
+
+    payload = fake.demo_storyboard_payload(2)
+    sb = _StoryboardDraft.model_validate(payload).to_storyboard()
+    hero = sb.protagonist.name
+    others = [c.name for c in sb.characters if c.name != hero]
+    if not others:
+        return
+    keeper = others[0]
+    first = sb.cuts[0].model_copy(update={"cast": [sb.cuts[0].cast[0].model_copy(update={"name": hero})]})
+    talk = sb.cuts[1].model_copy(update={
+        "location": first.location,
+        "cast": [sb.cuts[1].cast[0].model_copy(update={"name": keeper, "position": "center"})],
+        "dialogue": [sb.cuts[1].dialogue[0].model_copy(update={"speaker": keeper})] if sb.cuts[1].dialogue else [],
+    })
+    if not talk.dialogue:
+        return
+    sb2 = sb.model_copy(update={"cuts": [first, talk]})
+    partner = ots_partner(sb2, talk)
+    assert partner is not None and partner.name == hero
+
+
+def test_partners_back_is_not_measured_as_the_speaker():
+    from app.videomake.stages.cut_images import MEDIUM_PROBLEM, ots_partner
+
+    sb = _sb()
+    talk = next((c for c in sb.cuts if c.dialogue and ots_partner(sb, c)), None)
+    if talk is None:
+        return
+    small_speaker = SeenFrame(people=[SeenPerson(gender="", height_ratio=0.6, from_behind=True),
+                                      SeenPerson(gender="", height_ratio=0.25)],
+                              looks_at_camera=False, foreground_back=True)
+    assert MEDIUM_PROBLEM in image_problems(sb, talk, small_speaker)
+
+
+def test_posture_props_and_sunlight_follow_the_scene():
+    from app.videomake.stages.cut_images import SCENE_PROBLEM, SUN_PROBLEM, planned_sun
+
+    sb = _sb()
+    sunny = sb.cuts[0].model_copy(update={"image_prompt": "Weekend afternoon, warm sunlight. 서연 crouches."})
+    night = sb.cuts[0].model_copy(update={"image_prompt": "Night, warm sunlight lamp."})
+    assert planned_sun(sunny) and not planned_sun(night)
+    problems = image_problems(sb, sunny, _seen(sunlight=False, scene_mismatch=["the basket is in her hands"]))
+    assert SUN_PROBLEM in problems
+    assert any(p.startswith(SCENE_PROBLEM) and "basket" in p for p in problems)
+    assert SUN_PROBLEM not in image_problems(sb, sunny, _seen(sunlight=True))

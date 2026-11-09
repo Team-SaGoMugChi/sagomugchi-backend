@@ -80,9 +80,13 @@ def test_sheets_are_made_for_used_places_and_on_screen_people_only(tmp_path):
 
     sheets = sorted(n for n in calls if n.startswith("sheet:"))
     # 엄마는 화면에 나오지 않고 "안 쓰는 곳"은 어느 컷도 쓰지 않아 시트가 없다.
-    assert sheets == ["sheet:character_01", "sheet:location_01", "sheet:location_02", "sheet:주인공"]
-    assert calls["sheet:location_01"][2] == "1:1"
-    assert "Four views of the same empty place" in calls["sheet:location_01"][0]
+    # 장소마다 기준 장면(master)을 먼저 그리고, 그것을 참고로 네 방향 시트를 그린다.
+    assert sheets == ["sheet:character_01", "sheet:location_01_try1", "sheet:location_02_try1",
+                      "sheet:master_location_01", "sheet:master_location_02", "sheet:주인공"]
+    assert calls["sheet:location_01_try1"][2] == "1:1"
+    assert "Four views of the same empty place" in calls["sheet:location_01_try1"][0]
+    assert calls["sheet:location_01_try1"][1] == ["sheet:master_location_01"]
+    assert "Never mirror the room" in calls["sheet:location_01_try1"][0]
 
 
 def test_cut_gets_its_cast_sheets_in_screen_order_and_its_place_sheet(tmp_path):

@@ -71,8 +71,9 @@ def test_on_screen_speaker_is_pointed_at_by_position_and_look(tmp_path):
     assert "Only that person's lips move" in motion
     assert "지수 speaks" not in motion  # 이름만으로는 Veo가 누구인지 모른다
     # 혼자 보이는 화자는 화면 밖 상대 쪽(왼쪽)을 본다.
-    assert "just outside the frame on the left side" in motion
-    assert "Only this one person is in the frame." in motion
+    # 대사 컷은 어깨너머 샷 — 앞쪽 상대는 뒷모습으로 듣기만 한다.
+    assert "the person seen from behind at the left edge" in motion
+    assert "they never speak" in motion
 
 
 def test_off_screen_voice_cut_is_a_silent_listening_shot(tmp_path):
@@ -119,7 +120,7 @@ def test_dialogue_prompt_forbids_subtitles_and_camera_gaze(tmp_path):
     motion = _motion(tmp_path, [([("지훈", "left"), ("지수", "right")], []), ([("지훈", "left")], ["지훈"])])[2]
 
     assert "Absolutely no subtitles, captions, letters or any on-screen text" in motion
-    assert "just outside the frame on the right side, never at the camera" in motion
+    assert "the person seen from behind at the right edge of the\nforeground, never at the camera" in motion
 
 
 def test_negative_prompts_block_burned_in_text():

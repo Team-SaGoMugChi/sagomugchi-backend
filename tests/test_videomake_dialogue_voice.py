@@ -282,7 +282,9 @@ def test_image_check_finds_small_wrong_gender_and_camera_gaze():
 
     sb = _cut_check_sb()
     cut = sb.cuts[1]
-    ok = SeenFrame(people=[SeenPerson(gender="m", height_ratio=0.6)], looks_at_camera=False)
+    # 함께 보인 컷이 없어도 같은 장소의 상대가 어깨너머 뒷모습으로 앞쪽에 걸친다(2026-11 칼국수집 7차).
+    ok = SeenFrame(people=[SeenPerson(gender="m", height_ratio=0.6), SeenPerson(gender="", height_ratio=0.5)],
+                   looks_at_camera=False, foreground_back=True)
     assert image_problems(sb, cut, ok) == []
     # 실제 관측: 허리 위 샷인데 아주 작게, 50대 남자를 여자로
     bad = SeenFrame(people=[SeenPerson(gender="f", height_ratio=0.15)], looks_at_camera=True)

@@ -39,6 +39,11 @@ for the whole clip. No color grading, tint or exposure change.
 Every object stays solid and in place: anything a person holds stays in the same hand for the
 whole shot, and nothing in the scene appears, disappears or changes shape.
 Only the people and objects already in the first frame are in the shot; no one new enters.
+Nobody takes off, puts on or changes any clothing (a coat, jacket, cardigan or apron) unless the action says so.
+{% if stays_seated | default(false) -%}
+Everyone who is sitting in the first frame stays seated for the whole clip: nobody stands up, rises from the
+chair or leaves the table.
+{% endif -%}
 {% if people | default([]) -%}
 Exactly {{ people | length }} {{ "person is" if people | length == 1 else "different people are" }} in this clip and nobody else: {{ people | join("; ") }}.
 Each of them appears only once in any frame: never two copies of the same person, no twins or look-alikes{% if background_people | default("") %}.
@@ -55,10 +60,12 @@ The shot opens with about one second of silence. Nobody speaks before the FIRST 
 {% if line.position -%}
 {% if loop.first %}FIRST{% else %}THEN{% endif %}, the person on the {{ line.position }} side of the frame{% if line.look %} ({{ line.look }}){% endif %} speaks{% if line.voice %}. Their voice is {{ line.voice }}{% endif %}.
 Only that person's lips move, naturally in sync, as they say in Korean: "{{ line.text }}"
+{% if line.roman | default("") %}(Pronounce every syllable clearly, including final consonants: {{ line.roman }}){% endif %}
 While they speak, everyone else stays silent with their mouth closed.
 {% else -%}
 {% if loop.first %}FIRST{% else %}THEN{% endif %}, an off-screen voice that is not anyone in the frame speaks (for example through a phone){% if line.voice %}. The voice is {{ line.voice }}{% endif %}.
 It says in Korean: "{{ line.text }}"
+{% if line.roman | default("") %}(Pronounce every syllable clearly, including final consonants: {{ line.roman }}){% endif %}
 Nobody in the frame moves their lips for this line; they only listen.
 {% endif -%}
 {% endfor %}
@@ -72,9 +79,10 @@ for the remainder of the shot. Do not invent additional dialogue or chatter
 to fill the silence.
 {{ mood_line }} No shouting.
 
-{% if solo_side %}The speaker looks toward the other person just outside the frame on the {{ solo_side }} side, never at the camera.
-Only this one person is in the frame. The camera holds still, close on this person. The other person stays
-outside the frame for the whole shot: nobody walks into the frame, and no body, shoulder or head appears at its edges.{% else %}The speakers look at each other while talking, never at the camera.{% endif %}
+{% if solo_side %}Over-the-shoulder shot: the speaker looks toward the person seen from behind at the {{ solo_side }} edge of the
+foreground, never at the camera. That person ({{ partner_look | default("the other person") }}) only listens: they stay still with
+their back to the camera, their face and mouth are never shown, and they never speak. The camera holds still.
+Nobody else walks into the frame.{% else %}The speakers look at each other while talking, never at the camera.{% endif %}
 
 Absolutely no subtitles, captions, letters or any on-screen text appear at any time.
 Audio: only the Korean lines quoted above, quiet ambient room tone underneath.

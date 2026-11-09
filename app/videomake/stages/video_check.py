@@ -23,6 +23,7 @@ from ..job import JobStore
 from ..models import Cut, Storyboard
 from ..providers.base import CastCheck, ContinuityProvider, LookProvider, TimedFrame
 from .compose import _ffmpeg, _run
+from .cut_images import check_people
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +42,8 @@ class VideoCheck(BaseModel):
     tail_covered_from: float | None = None  # 끝 조각을 정지 화면으로 덮기 시작한 시각
     # 이 시각 뒤로 화면 끝에 낯선 사람이 들어온다 — 편집이 컷을 여기까지만 쓴다(compose). None이면 끝까지 깨끗하다.
     clean_until: float | None = None
+    # 화면에 자막 같은 글자가 그려진 시각. 잘라 낼 수 없어 영상을 다시 만든다(video_render).
+    text_at: float | None = None
     issues: list[str] = []
 
     @property
@@ -125,7 +128,9 @@ async def check_cut_video(
             result.issues.append(issue)
         if look is not None:
             result.issues += await _people_issues(sb, cut, path, cuts, duration, look=look, job=job)
-            result.clean_until = await _intruder_time(sb, cut, path, duration, look=look, job=job)
+            result.clean_until, result.text_at = await _intruder_time(sb, cut, path, duration, look=look, job=job)
+            if result.text_at is not None:
+                result.issues.append(f"{result.text_at:.1f}초에 화면에 글자(자막)가 그려져 있다.")
             if result.clean_until is not None:
                 log.warning("컷 %d: %.1f초 뒤로 화면 끝에 낯선 사람이 들어온다 — 그 앞까지만 쓴다",
                             cut.index, result.clean_until)
@@ -146,11 +151,7 @@ async def _people_issues(
     *, look: LookProvider, job: JobStore,
 ) -> list[str]:
     """샷마다 가운데 프레임 한 장을 보고 같은 사람이 둘인지, 없던 사람이 있는지 본다(샷당 약 1원)."""
-    people = []
-    for m in sb.visible_cast(cut):
-        profile = sb.character(m.name)
-        people.append(profile.appearance.split(".")[0].strip() if profile else m.name)
-    check = CastCheck(people=people)
+    check = CastCheck(people=check_people(sb, cut))
     crowd = bool((place := sb.location(cut.location)) and place.background_people)
     bounds = [0.0, *cuts, duration]
     issues = []
@@ -176,23 +177,25 @@ INTRUDER_STEP_SECONDS = 1.0
 
 async def _intruder_time(
     sb: Storyboard, cut: Cut, path: Path, duration: float, *, look: LookProvider, job: JobStore,
-) -> float | None:
-    """1초 간격 프레임에서 화면 끝에 잘린 낯선 사람이 처음 보이기 직전의 깨끗한 시각. 끝까지 없으면 None."""
-    check = CastCheck(people=[
-        (p.appearance.split(".")[0].strip() if (p := sb.character(m.name)) else m.name)
-        for m in sb.visible_cast(cut)
-    ])
+) -> tuple[float | None, float | None]:
+    """1초 간격 프레임에서 (화면 끝에 잘린 낯선 사람이 처음 보이기 직전의 깨끗한 시각, 화면 글자가 처음 보인 시각).
+    없으면 None. 영상 AI가 대사를 자막처럼 그려 넣은 적이 있다(2026-11 카페 컷 3, 8.5~10.5초)."""
+    check = CastCheck(people=check_people(sb, cut))
     clean = 0.0
+    text_at = None
     t = INTRUDER_STEP_SECONDS
     while t < duration - 0.1:
         frame = await asyncio.to_thread(
             _frame_at, path, t, job.cut_dir(cut.index) / f"check_edge_{t:04.1f}.png", width=480
         )
-        if (await look.look(image=frame, cast=check)).cut_off_person:
-            return round(clean, 2)
+        seen = await look.look(image=frame, cast=check)
+        if seen.on_screen_text and text_at is None:
+            text_at = round(t, 2)
+        if seen.cut_off_person:
+            return round(clean, 2), text_at
         clean = t
         t += INTRUDER_STEP_SECONDS
-    return None
+    return None, text_at
 
 
 async def _continuity_issues(
