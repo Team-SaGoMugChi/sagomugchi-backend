@@ -247,7 +247,7 @@ async def plan_storyboard(
             # 컷 수·전체 길이 범위, 나레이션/대사 배타 규칙이나 글자 수 상한 위반.
             # 예외로 죽이지 않고 한 번에 모아 피드백으로 돌려준다(재요청은 3회뿐이다).
             last_violations = cut_errors
-            log.warning("가드레일 위반 %d건, 재요청", len(last_violations))
+            log.warning("가드레일 위반 %d건, 재요청: %s", len(last_violations), " / ".join(last_violations[:3]))
             feedback = _feedback(last_violations, meta.raw_json)
             continue
         else:
@@ -260,10 +260,10 @@ async def plan_storyboard(
                     f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}"
                     for e in exc.errors()
                 ]
-                log.warning("가드레일 위반 %d건, 재요청", len(last_violations))
+                log.warning("가드레일 위반 %d건, 재요청: %s", len(last_violations), " / ".join(last_violations[:3]))
                 feedback = _feedback(last_violations, meta.raw_json)
                 continue
-            violations = lint_storyboard(sb)
+            violations = lint_storyboard(sb, diary.text)
             if not violations:
                 if job is not None:
                     job.save_storyboard(sb)
@@ -275,7 +275,7 @@ async def plan_storyboard(
                 return sb
             last_violations = [str(v) for v in violations]
 
-        log.warning("가드레일 위반 %d건, 재요청", len(last_violations))
+        log.warning("가드레일 위반 %d건, 재요청: %s", len(last_violations), " / ".join(last_violations[:3]))
         feedback = _feedback(last_violations, meta.raw_json)
 
     raise GuardrailViolation(

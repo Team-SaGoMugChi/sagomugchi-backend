@@ -230,7 +230,8 @@ def test_auto_keeps_veo_voice_when_it_says_the_script(tmp_path, monkeypatch):
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg 필요")
-def test_auto_dubs_when_veo_adds_words(tmp_path, monkeypatch):
+def test_veo_voice_is_kept_even_when_it_adds_words(tmp_path, monkeypatch):
+    # TTS로 바꾸면 그 인물만 나레이션 같은 목소리가 되었다(2026-11 할머니 텃밭) — 조금 틀려도 Veo 목소리를 쓴다.
     from app.videomake.providers.base import HeardSpeech
 
     pipe = _pipeline(tmp_path, monkeypatch)
@@ -238,8 +239,20 @@ def test_auto_dubs_when_veo_adds_words(tmp_path, monkeypatch):
     pipe.p = pipe.p.__class__(**{**pipe.p.__dict__, "listen": listen})
     _finish(pipe)
 
-    assert pipe.job.cut_dialogue(2).exists()
-    assert '"keep_veo_voice": false' in (pipe.job.cut_dir(2) / "voice_check.json").read_text(encoding="utf-8")
+    assert not pipe.job.cut_dialogue(2).exists()
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg 필요")
+def test_auto_dubs_when_veo_voice_has_the_wrong_gender(tmp_path, monkeypatch):
+    from app.videomake.providers.base import HeardSpeech
+
+    pipe = _pipeline(tmp_path, monkeypatch)
+    listen = fake.FakeListen(HeardSpeech(text="왜 늦었어", voice="m"))
+    pipe.p = pipe.p.__class__(**{**pipe.p.__dict__, "listen": listen})
+    _finish(pipe)
+    record = (pipe.job.cut_dir(2) / "voice_check.json").read_text(encoding="utf-8")
+    if "성별이 다름" in record:
+        assert pipe.job.cut_dialogue(2).exists()
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg 필요")
@@ -282,7 +295,9 @@ def test_image_check_finds_small_wrong_gender_and_camera_gaze():
 
     sb = _cut_check_sb()
     cut = sb.cuts[1]
-    ok = SeenFrame(people=[SeenPerson(gender="m", height_ratio=0.6)], looks_at_camera=False)
+    # 함께 보인 컷이 없어도 같은 장소의 상대가 어깨너머 뒷모습으로 앞쪽에 걸친다(2026-11 칼국수집 7차).
+    ok = SeenFrame(people=[SeenPerson(gender="m", height_ratio=0.6), SeenPerson(gender="", height_ratio=0.5)],
+                   looks_at_camera=False, foreground_back=True)
     assert image_problems(sb, cut, ok) == []
     # 실제 관측: 허리 위 샷인데 아주 작게, 50대 남자를 여자로
     bad = SeenFrame(people=[SeenPerson(gender="f", height_ratio=0.15)], looks_at_camera=True)
@@ -390,3 +405,32 @@ def test_wrong_veo_line_is_rendered_again_instead_of_dubbed(tmp_path, monkeypatc
     assert video.submits == 3  # 두 컷 + 틀린 대사 컷 1번 다시
     assert not pipe.job.cut_dialogue(2).exists()  # TTS 더빙 없음
     assert '"keep_veo_voice": true' in (pipe.job.cut_dir(2) / "voice_check.json").read_text(encoding="utf-8")
+
+
+def test_script_end_is_not_placed_before_the_last_word(tmp_path):
+    """잘라 들어 본 곳에서 대본 끝("미안해")이 빠졌으면 그곳에서 자르지 않는다(대사 끝이 잘렸다)."""
+    import wave
+
+    from app.videomake.job import JobStore
+    from app.videomake.providers.base import HeardSpeech
+    from app.videomake.stages.dialogue_voice import _find_script_end
+
+    clip = tmp_path / "v.wav"
+    with wave.open(str(clip), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(RATE)
+        wf.writeframes(_signal(6, [(1.0, 3.2), (3.8, 4.6), (5.4, 5.9)]).tobytes())
+
+    class _Listen:
+        async def listen(self, *, audio):
+            seconds = wave.open(str(audio), "rb").getnframes() / RATE
+            return HeardSpeech(text="아니야, 그런 뜻 아니었어." if seconds < 3.5 else "아니야 그런 뜻 아니었어. 미안해요.",
+                               voice="f")
+
+    cut = Storyboard.model_validate(fake.demo_storyboard_payload(2)).cuts[0].model_copy(update={"duration_seconds": 6})
+    job = JobStore(tmp_path, "j")
+    job.cut_dir(cut.index).mkdir(parents=True, exist_ok=True)
+    end = asyncio.run(_find_script_end(cut, "아니야, 그런 뜻 아니었어. 미안해", "아니야 그런 뜻 아니었어. 미안해요. 미안해.",
+                                       clip, listen=_Listen(), job=job))
+    assert end is not None and end > 4.0  # 3.2초(미안해 전)가 아니라 둘째 말소리 끝

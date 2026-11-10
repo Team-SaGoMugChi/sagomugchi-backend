@@ -95,6 +95,15 @@ class LocationProfile(BaseModel):
             "and eating'. 집·혼자 있는 방처럼 비어 있는 게 자연스러우면 빈 문자열."
         ),
     )
+    floor_plan: str = Field(
+        default="",
+        description=(
+            "가구 배치도(영어, 한두 문장). 무엇이 몇 개, 어디에 어떤 줄로 놓였는지 개수와 위치를 정확히 쓴다. "
+            "예: 'Down the middle: two rows of three square tables (six tables). Along the left windows: "
+            "four two-seat tables in a single line. Along the right wall: a counter with five stools.' "
+            "장소 시트의 네 칸과 모든 컷 그림이 이 배치를 그대로 따른다."
+        ),
+    )
 
 
 class CastMember(BaseModel):

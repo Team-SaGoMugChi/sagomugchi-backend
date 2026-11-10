@@ -2,7 +2,17 @@ A location reference sheet for one place.
 
 PLACE:
 {{ description }}
-
+{% if floor_plan | default("") %}
+FLOOR PLAN (every panel shows exactly this arrangement and these counts, seen from that panel's side):
+{{ floor_plan }}
+{% endif %}
+{% if has_master | default(false) %}
+ATTACHED REFERENCE IMAGE: the master view of this place, seen from the entrance.
+The top-left panel is exactly this view: the same room, furniture, counts and positions, from the same camera.
+The other three panels show this identical room from the other sides; they are not a redesign.
+Never mirror the room: a wall, window or counter that is on the left in the master view is on the left in the
+top-left panel, and on the right in the top-right panel (which looks back toward the entrance).
+{% endif %}
 LAYOUT:
 Four views of the same empty place, arranged in a 2x2 grid of equal panels:
 top-left: standing at the entrance, looking into the place.
@@ -11,6 +21,7 @@ bottom-left: looking straight at the left side (as seen from the entrance).
 bottom-right: looking straight at the right side (as seen from the entrance).
 No people anywhere. Even, neutral daylight in every panel.
 All four panels must clearly be the same place: identical layout, furniture, materials and colors.
+Count the furniture: the number of tables, chairs and rows is the same in every panel where they are visible.
 No text, labels, captions, arrows or borders with writing.
 
 STYLE:

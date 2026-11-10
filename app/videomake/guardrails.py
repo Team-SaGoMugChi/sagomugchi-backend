@@ -354,6 +354,66 @@ def lint_dialogue_staging(sb: Storyboard) -> list[Violation]:
     return out
 
 
+_OPPOSITE = {"left": "right", "right": "left", "far": "entrance", "entrance": "far"}
+
+
+def lint_dialogue_camera(sb: Storyboard) -> list[Violation]:
+    """같은 자리에서 나누는 대화는 사람마다 카메라 방향이 하나다. 같은 사람의 대사 컷은 같은 방향,
+    함께 앉은 상대의 대사 컷은 그 반대 방향.
+
+    컷마다 방향을 바꾸면 같은 자리인데 뒤 배경이 달라져 장소가 바뀐 것처럼 보였다
+    (2026-11 카페: 지민 대사 컷 3은 안쪽 카운터, 컷 5는 입구를 향함).
+    """
+    from .stages.cut_images import planned_side
+
+    out: list[Violation] = []
+    sides: dict[tuple[str, str], tuple[str, int]] = {}  # (장소, 말하는 사람) → (방향, 처음 정한 컷)
+    distances: dict[tuple[str, str], tuple[str, int]] = {}  # (장소, 말하는 사람) → (거리, 처음 정한 컷)
+    for cut in sb.cuts:
+        if not cut.dialogue or len(cut.cast) != 1 or not cut.location:
+            continue
+        speaker = cut.cast[0].name
+        side = planned_side(cut)
+        if speaker not in {line.speaker for line in cut.dialogue} or not side:
+            continue
+        key = (cut.location, speaker)
+        if key in distances and distances[key][0] != cut.camera_distance:
+            out.append(Violation(
+                field=f"cut{cut.index}.camera_distance",
+                rule="같은 사람 대사 컷은 같은 거리",
+                detail=(f"{speaker}의 대사 컷 {distances[key][1]}은 {distances[key][0]}인데 컷 {cut.index}는 "
+                        f"{cut.camera_distance}다. 같은 자리면 같은 거리로 찍는다(멀어지면 다른 테이블처럼 보였다)."),
+            ))
+        distances.setdefault(key, (cut.camera_distance, cut.index))
+        if key not in sides:
+            sides[key] = (side, cut.index)
+        elif sides[key][0] != side:
+            first_side, first = sides[key]
+            out.append(Violation(
+                field=f"cut{cut.index}.image_prompt",
+                rule="같은 사람 대사 컷은 같은 카메라 방향",
+                detail=(f"{speaker}의 대사 컷 {first}은 {first_side} 쪽을 보는데 컷 {cut.index}는 {side} 쪽이다. "
+                        f"같은 자리면 'Camera faces the {first_side} side'로 맞춘다."),
+            ))
+    # 둘이 마주한 대화(두 사람만 함께 보이는 컷이 있다)의 대사 컷은 서로 반대 방향이어야 한다(숏–리버스숏).
+    # 셋 이상이 한 테이블에 앉으면 옆자리끼리라 반대가 아닐 수 있어 따지지 않는다.
+    for (loc, a), (side_a, cut_a) in sides.items():
+        for (loc_b, b), (side_b, cut_b) in sides.items():
+            if loc_b != loc or a >= b:
+                continue
+            together = any(
+                c.location == loc and {m.name for m in c.cast} == {a, b} for c in sb.cuts
+            )
+            if together and side_b != _OPPOSITE.get(side_a):
+                out.append(Violation(
+                    field=f"cut{cut_b}.image_prompt",
+                    rule="마주한 상대 대사 컷은 반대 방향",
+                    detail=(f"{a}의 대사 컷 {cut_a}은 {side_a} 쪽, {b}의 대사 컷 {cut_b}은 {side_b} 쪽을 본다. "
+                            f"마주 앉은 상대는 반대인 {_OPPOSITE.get(side_a)} 쪽을 보게 쓴다."),
+                ))
+    return out
+
+
 def lint_gender(sb: Storyboard) -> list[Violation]:
     """인물마다 성별이 appearance·voice에 드러나야 한다. 흐리면("young adult") 그림 모델은
     아무 성별로 그리고 대사 목소리는 다른 성별로 붙을 수 있다."""
@@ -376,8 +436,34 @@ def lint_gender(sb: Storyboard) -> list[Violation]:
     return out
 
 
-def lint_storyboard(sb: Storyboard) -> list[Violation]:
+_QUOTE = re.compile(r'["“]([^"”]{2,60})["”]')
+
+
+def _bare(text: str) -> str:
+    return re.sub(r"[\s.,!?~…·'\"“”‘’]", "", text)
+
+
+def lint_diary_quotes(sb: Storyboard, diary_text: str) -> list[Violation]:
+    """일기에 따옴표로 적힌 말은 그대로(조금 줄여도 된다) 누군가의 대사가 된다.
+
+    일기의 핵심 대사 "엄마, 우리 자주 오자"가 시나리오에서 빠졌다(2026-11 칼국수집 7차). 직접 한 말은
+    그 일기의 가장 중요한 순간인 경우가 많다."""
+    from difflib import SequenceMatcher
+
+    quotes = [q for q in _QUOTE.findall(diary_text or "") if len(_bare(q)) >= 3]
+    lines = [_bare(d.text) for c in sb.cuts for d in c.dialogue]
     out: list[Violation] = []
+    for q in quotes:
+        bq = _bare(q)
+        if not any(bq in b or b in bq or SequenceMatcher(None, bq, b).ratio() >= 0.6 for b in lines if b):
+            out.append(Violation(field="dialogue", rule="일기 속 대사 누락",
+                                 detail=f'일기에 직접 적힌 말 "{q}"이(가) 어느 컷의 대사에도 없다. 대사 컷으로 넣는다'))
+    return out
+
+
+def lint_storyboard(sb: Storyboard, diary_text: str = "") -> list[Violation]:
+    out: list[Violation] = []
+    out += lint_diary_quotes(sb, diary_text)
     names = {c.name for c in sb.characters}
     out += lint_gender(sb)
     for c in sb.characters:
@@ -394,4 +480,5 @@ def lint_storyboard(sb: Storyboard) -> list[Violation]:
     out += lint_silent_cuts(sb)
     out += lint_cast(sb)
     out += lint_dialogue_staging(sb)
+    out += lint_dialogue_camera(sb)
     return out

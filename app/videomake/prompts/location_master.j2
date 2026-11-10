@@ -1,0 +1,17 @@
+One empty master view of a place, the fixed reference that every later view of this place must match.
+
+PLACE:
+{{ description }}
+{% if floor_plan | default("") %}
+FLOOR PLAN (keep exactly this arrangement and these counts):
+{{ floor_plan }}
+{% endif %}
+CAMERA:
+Standing at the entrance at eye level, looking straight into the place toward the far side.
+The left side of the place (as described above) is on the left of the frame and the right side is on the
+right of the frame. Show the floor, the ceiling and its lights, and as much of the furniture as possible.
+No people, no silhouettes, no reflections of people, no mannequins. Even, neutral daylight.
+One continuous view from one camera: never panels or a split screen. No text, labels, captions or watermark.
+
+STYLE:
+{{ style_block }}

@@ -173,3 +173,22 @@ def test_someone_walking_in_at_the_edge_limits_the_cut(tmp_path):
     assert result.clean_until == 3.0
     saved = json.loads((job.cut_dir(cut.index) / "video_check.json").read_text(encoding="utf-8"))
     assert saved["clean_until"] == 3.0
+
+
+class _TextLook:
+    """2초 프레임에 자막 같은 글자가 그려져 있다."""
+
+    async def look(self, *, image, place=None, cast=None):
+        text = "check_edge_" in image.name and image.stem.endswith("02.0")
+        return SeenFrame(people=[], looks_at_camera=False, on_screen_text=text)
+
+
+def test_subtitle_drawn_into_the_video_is_reported(tmp_path):
+    sb = _sb()
+    cut = sb.cuts[0]
+    job = JobStore(tmp_path, "j")
+    job.cut_dir(cut.index).mkdir(parents=True, exist_ok=True)
+    clip = _clip(tmp_path / "v.mp4", [("red", 5)])
+    result = asyncio.run(check_cut_video(sb, cut, clip, look=_TextLook(), job=job))
+    assert result.text_at == 2.0
+    assert any("글자" in i for i in result.issues)

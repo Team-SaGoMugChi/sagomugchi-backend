@@ -153,6 +153,7 @@ class SeenPerson(BaseModel):
     gender: str  # "m" / "f" / ""
     height_ratio: float  # 화면 높이 대비 그 사람이 보이는 부분의 높이(0~1) — 어림값이라 크게 나오는 편
     legs_visible: bool = False  # 무릎 아래(다리·발)가 보이는가 — 허리 위 샷이면 보이지 않아야 한다
+    from_behind: bool = False  # 등을 보이고 있는가(어깨너머 샷의 앞사람) — 말하는 사람 크기를 잴 때 뺀다
 
 
 class SeenFrame(BaseModel):
@@ -165,8 +166,14 @@ class SeenFrame(BaseModel):
     empty_seat: bool | None = None
     # 카메라 가까이 누군가의 뒷모습(뒷머리·어깨·팔)이 걸쳐 있다(어깨너머 샷). 혼자 보이는 대사 컷에서는 안 된다.
     foreground_back: bool | None = None
+    # 화면에 그려진 글자(자막·말풍선·캡션). 영상 AI가 대사를 자막처럼 화면에 그려 넣은 적이 있다.
+    on_screen_text: bool | None = None
+    # 창(유리창 벽)이 화면 어느 쪽에 있나: "left" / "right" / ""(가운데·여러 쪽·안 보임). 좌우 뒤집힘을 잡는다.
+    window_side: str = ""
     # 창밖·빛으로 본 시간대: "day" / "night" / ""(모름·창이 안 보임)
     time_of_day: str = ""
+    # 출입문(유리문) 너머로 보이는 것: "outside"(거리·하늘) / "inside"(다른 방·테이블) / ""(문이 안 보임)
+    door_view: str = ""
     # 장소 확인(PlaceCheck를 줬을 때만): 장소 시트와 같은 곳인가, 카메라가 어느 쪽을 보나.
     same_place: bool | None = None
     facing: str = ""  # "entrance" / "far" / "left" / "right" / ""(모름)
@@ -177,6 +184,12 @@ class SeenFrame(BaseModel):
     cut_off_person: bool | None = None
     # 자리 확인(PlaceCheck.seats를 줬을 때만): 정해진 자리가 아닌 곳에 앉은 사람 이름.
     wrong_seat: list[str] = []
+    # 옷이 시트와 다른 사람 이름(겉옷을 벗었거나 다른 옷). CastCheck.outfits를 줬을 때만.
+    outfit_mismatch: list[str] = []
+    # 컷 지시(SCENE)와 다른 자세·물건(누가 무엇을 들었나, 서 있나 앉아 있나). CastCheck.scene을 줬을 때만.
+    scene_mismatch: list[str] = []
+    # 햇빛: True(직사광·그림자가 보임) / False(흐리고 밋밋함) / None(모름·실내)
+    sunlight: bool | None = None
 
 
 class PlaceCheck(BaseModel):
@@ -206,6 +219,10 @@ class CastCheck(BaseModel):
     """그 장면에 있어야 할 사람들(짧은 외모 묘사). 영상 프레임에서 복제·낯선 사람을 찾는다."""
 
     people: list[str]
+    # "이름: 옷차림" — 그림 검사에서 겉옷을 벗는 등 옷이 바뀐 사람을 찾는다(2026-11 칼국수집 컷 5).
+    outfits: list[str] = []
+    # 그 컷의 그림 지시. 자세·물건 위치가 지시와 다른지 본다(2026-11 할머니 텃밭: 바구니·자세가 컷마다 바뀜).
+    scene: str = ""
 
 
 @runtime_checkable
