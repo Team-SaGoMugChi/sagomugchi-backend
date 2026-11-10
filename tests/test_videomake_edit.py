@@ -20,7 +20,7 @@ from app.videomake.providers.base import LLMResult
 from app.videomake.providers.fish_tts import FallbackTTS
 from app.videomake.providers.registry import build_fake_providers, build_narration_tts
 from app.videomake.stages.compose import _music_track, edit_lengths
-from app.videomake.stages.edit_plan import load_plan, make_music, plan_edit
+from app.videomake.stages.edit_plan import DEFAULT_MUSIC_PROMPT, cover_all, load_plan, make_music, plan_edit
 from app.videomake.stages.storyboard import _StoryboardDraft
 
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg 필요")
@@ -108,8 +108,10 @@ def test_dummy_pipeline_cuts_dead_air(tmp_path, monkeypatch):
     # 가짜 나레이션 3초 → 컷마다 3.5초. 컷 길이 그대로였다면 sb.final_seconds.
     assert _probe_seconds(final) == pytest.approx(3 * 3.5 - 0.3 * 2, abs=0.15)
     assert _probe_seconds(final) < sb.final_seconds - 1
-    # 더미 모드는 편집 계획 LLM을 부르지 않는다 — 음악 없음.
-    assert load_plan(pipe.job) == EditPlan()
+    # 더미 모드는 편집 계획 LLM을 부르지 않는다 — 기본 곡 하나가 처음부터 끝까지(더미에는 음악 provider가 없다).
+    plan = load_plan(pipe.job)
+    assert plan.hold_cuts == []
+    assert [(m.from_cut, m.to_cut, m.prompt) for m in plan.music] == [(1, 3, DEFAULT_MUSIC_PROMPT)]
 
 
 # --- 편집 계획·배경음악 ------------------------------------------------------------
@@ -148,6 +150,8 @@ def test_plan_edit_asks_llm_once_and_caches(tmp_path):
     plan = asyncio.run(plan_edit(sb, llm=llm, prompts=get_prompts(), settings=settings, job=job))
     again = asyncio.run(plan_edit(sb, llm=llm, prompts=get_prompts(), settings=settings, job=job))
     assert plan.hold_cuts == [3] and plan.music[0].prompt == "soft piano"
+    # 음악은 처음부터 끝까지 깐다 — LLM이 2~3컷만 골라도 1컷부터 덮는다.
+    assert [(m.from_cut, m.to_cut) for m in plan.music] == [(1, 3)]
     assert again == plan and llm.calls == 1
 
 
@@ -161,14 +165,15 @@ def test_music_off_means_no_cues(tmp_path):
     assert plan.music == []
 
 
-def test_plan_failure_falls_back_to_empty_plan(tmp_path):
+def test_plan_failure_falls_back_to_default_music(tmp_path):
     from app.videomake.prompts import get_prompts
 
     sb = _sb([(4, "n"), (6, "n")])
     # 스토리보드를 돌려주는 가짜 LLM — 편집 계획 스키마와 맞지 않아 실패한다.
     plan = asyncio.run(plan_edit(sb, llm=fake.FakeLLM(2), prompts=get_prompts(),
                                  settings=_settings(tmp_path, dummy=False), job=JobStore(tmp_path / "jobs", "f")))
-    assert plan == EditPlan()
+    assert plan.hold_cuts == []
+    assert [(m.from_cut, m.to_cut, m.prompt) for m in plan.music] == [(1, 2, DEFAULT_MUSIC_PROMPT)]
 
 
 @needs_ffmpeg

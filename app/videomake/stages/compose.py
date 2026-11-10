@@ -73,14 +73,55 @@ def cut_starts(seconds: list[int], crossfade: float = CROSSFADE_SECONDS) -> list
     return starts
 
 
-def _prepare_video(src: Path, dest: Path, *, seconds: float, size: tuple[int, int]) -> None:
-    """xfade는 크기·프레임·픽셀 형식이 같아야 한다. 컷마다 같은 규격으로 맞추고 소리는 뺀다."""
+def _prepare_video(
+    src: Path, dest: Path, *, seconds: float, size: tuple[int, int], card: Path | None = None
+) -> None:
+    """xfade는 크기·프레임·픽셀 형식이 같아야 한다. 컷마다 같은 규격으로 맞추고 소리는 뺀다.
+    card: 컷 첫머리 TIME_CARD_SECONDS 동안 위에 얹을 시간 글자 그림(투명 PNG, 화면 크기)."""
     w, h = size
+    base = f"scale={w}:{h},setsar=1,fps={FPS}"
+    if card is None:
+        video = ["-vf", f"{base},format=yuv420p"]
+    else:
+        video = [
+            "-i", str(card), "-filter_complex",
+            f"[0:v]{base}[v];[v][1:v]overlay=0:0:enable='lt(t,{TIME_CARD_SECONDS})',format=yuv420p",
+        ]
     _run([
-        _ffmpeg(), "-y", "-i", str(src), "-t", str(seconds), "-an",
-        "-vf", f"scale={w}:{h},setsar=1,fps={FPS},format=yuv420p",
+        _ffmpeg(), "-y", "-i", str(src), *video, "-t", str(seconds), "-an",
         "-c:v", "libx264", "-preset", "medium", "-crf", "18", str(dest),
     ])
+
+
+# 시간이 건너뛴 컷 첫머리에 띄우는 글자("다음 날"). 릴스처럼 노란 굵은 글씨에 검은 테두리, 화면 위쪽.
+TIME_CARD_SECONDS = 1.6
+_CARD_FONTS = (
+    ("/System/Library/Fonts/AppleSDGothicNeo.ttc", 6),  # macOS (index 6 = Bold)
+    ("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", 1),  # Debian·Ubuntu fonts-noto-cjk (KR)
+    ("/usr/share/fonts/noto-cjk/NotoSansCJK-Bold.ttc", 1),
+)
+
+
+def _time_card(text: str, dest: Path, *, size: tuple[int, int]) -> Path | None:
+    """시간 글자를 투명 PNG로 그린다. 한글 글꼴이 없으면 None(글자 없이 컷만 쓴다)."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    w, h = size
+    font = None
+    for path, index in _CARD_FONTS:
+        if Path(path).exists():
+            font = ImageFont.truetype(path, int(w * 0.12), index=index)
+            break
+    if font is None:
+        log.warning("한글 글꼴이 없어 시간 글자(%s)를 넣지 않는다", text)
+        return None
+    image = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(image).text(
+        (w // 2, int(h * 0.2)), text, font=font, anchor="mm", fill=(255, 221, 51, 255),
+        stroke_width=max(4, w // 120), stroke_fill=(0, 0, 0, 255),
+    )
+    image.save(dest)
+    return dest
 
 
 def _extract_audio(src: Path, dest: Path, *, seconds: float) -> bool:
@@ -193,7 +234,11 @@ def edit_lengths(
         if not settings.tight_edit or need is None or (cut.index in hold and not flows):
             lengths.append(full)
             continue
-        end = need + (settings.edit_flow_tail_seconds if flows else settings.edit_tail_seconds)
+        # 대사를 주고받으면(다음 컷도 대사) 한 줄이 끝나자마자 상대에게 넘긴다(릴스의 한 대사 한 샷 리듬).
+        exchange = cut.is_dialogue and pos + 1 < len(sb.cuts) and sb.cuts[pos + 1].is_dialogue
+        tail = (settings.edit_flow_tail_seconds if flows
+                else settings.edit_exchange_tail_seconds if exchange else settings.edit_tail_seconds)
+        end = need + tail
         floor = settings.edit_min_cut_seconds
         # 샷을 나눈 컷: 목소리가 끝날 때 이미 시작한 샷은 잠깐은 보여 주고(번쩍임 방지),
         # 아직 시작하지 않은 샷은 버린다 — 샷을 보여주려고 정적을 남기지 않는다.
@@ -223,6 +268,30 @@ def _voice_end(cut: Cut, narrations: dict[int, Path], voice_of: dict[int, Path],
         segments = speech_segments(_load_mono(voice_of[cut.index], cut.duration_seconds))
         return segments[-1][1] if segments else None
     return None
+
+
+MUSIC_DUCK_RAMP_SECONDS = 0.3  # 음악을 줄이고 되돌리는 데 걸리는 시간(뚝 끊기지 않게)
+
+
+def _duck_music(path: Path, spans: list[tuple[float, float]], *, duck_db: float) -> None:
+    """음악 파일에서 목소리가 나오는 구간(파일 기준 초)만 duck_db만큼 줄인다. 앞뒤는 천천히 줄이고 되돌린다."""
+    with wave.open(str(path), "rb") as wf:
+        params = wf.getparams()
+        samples = np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16)
+    rate, channels = params.framerate, params.nchannels
+    frames = samples.size // channels
+    t = np.arange(frames) / rate
+    # 0이면 원래 크기, 1이면 duck_db만큼 줄인다. 구간 밖은 ramp 동안 0으로 내려간다.
+    depth = np.zeros(frames)
+    ramp = MUSIC_DUCK_RAMP_SECONDS
+    for a, b in spans:
+        dist = np.maximum(np.maximum(a - t, t - b), 0.0)
+        depth = np.maximum(depth, np.clip(1.0 - dist / ramp, 0.0, 1.0))
+    gain = 10 ** (duck_db * depth / 20)
+    out = samples.reshape(frames, channels).astype(np.float64) * gain[:, None]
+    with wave.open(str(path), "wb") as wf:
+        wf.setparams(params)
+        wf.writeframes(np.clip(out, -32768, 32767).astype(np.int16).tobytes())
 
 
 def _music_track(src: Path, dest: Path, *, seconds: float) -> None:
@@ -296,13 +365,15 @@ def compose(
     # (파일, 시작 시각 ms, 볼륨 dB)
     audios: list[tuple[Path, int, float]] = []
     narration_at: dict[int, float] = {}  # 나레이션이 실제로 들어가는 시각(자막도 여기에 맞춘다)
+    voice_spans: list[tuple[float, float]] = []  # 목소리가 나오는 구간(영상 기준 초). 배경음악을 이 동안 줄인다
     voice_end = -VOICE_GAP_SECONDS  # 지금까지 놓은 목소리가 끝나는 시각(처음엔 없음)
     for cut, start, length in zip(sb.cuts, starts, seconds):
         src = job.cut_video(cut.index)
         if not src.exists():
             raise VideomakeError(f"컷 {cut.index}의 영상이 없다: {src}")
         video = work / f"{cut.index:02d}.mp4"
-        _prepare_video(src, video, seconds=length, size=size)
+        card = _time_card(cut.time_card, work / f"{cut.index:02d}_card.png", size=size) if cut.time_card else None
+        _prepare_video(src, video, seconds=length, size=size, card=card)
         videos.append(video)
 
         start_ms = int(start * 1000)
@@ -339,6 +410,7 @@ def compose(
             end = _check_value(job, cut.index, "voice_check.json", "script_end") if spoken.name.endswith("_veo.wav") else None
             if segs:
                 voice_end = start + min(segs[-1][1], end if end is not None else segs[-1][1])
+                voice_spans.append((start + segs[0][0], voice_end))
         narration = narrations.get(cut.index)
         if narration is not None and not cut.is_dialogue:
             at = max(start + delay_ms / 1000, voice_end + VOICE_GAP_SECONDS)
@@ -346,9 +418,10 @@ def compose(
             audios.append((narration, int(at * 1000), 0.0))
             segs = speech_segments(_load_mono(narration, 30))
             voice_end = at + (segs[-1][1] if segs else 0.0)
+            voice_spans.append((at, voice_end))
         log.info("컷 %d 준비 완료 (%.1fs부터, %.2fs)", cut.index, start, length)
 
-    # 배경음악: 편집 계획의 구간마다 한 곡을 작게 깐다.
+    # 배경음악: 편집 계획의 구간마다 한 곡을 깔고, 목소리가 나오는 동안만 줄인다.
     positions = {c.index: pos for pos, c in enumerate(sb.cuts)}
     for k, cue in enumerate(plan.music):
         if k not in music:
@@ -357,7 +430,10 @@ def compose(
         end = min(starts[positions[cue.to_cut]] + seconds[positions[cue.to_cut]], total)
         track = work / f"music{k}.wav"
         _music_track(music[k], track, seconds=round(end - begin, 3))
-        audios.append((track, int(begin * 1000), _level_gain(track, settings.music_level_db)))
+        gain = _level_gain(track, settings.music_level_db)
+        _duck_music(track, [(a - begin, b - begin) for a, b in voice_spans if b > begin and a < end],
+                    duck_db=settings.music_duck_db)
+        audios.append((track, int(begin * 1000), gain))
         log.info("배경음악 %d: 컷 %d~%d (%.1f~%.1fs)", k, cue.from_cut, cue.to_cut, begin, end)
 
     args = [_ffmpeg(), "-y"]

@@ -2,10 +2,9 @@
 
 compose는 목소리가 끝난 뒤 남는 정적을 잘라 컷을 줄인다(settings.tight_edit). 무음 컷은 원래
 자르지 않고, 여기서 고른 hold_cuts(문을 나서는 장면처럼 동작이 끝나야 의미가 사는 컷)도 남긴다.
-배경음악은 대부분 넣지 않고, 감정이 크게 움직이는 구간에만 작게 깐다(settings.music_level_db).
+배경음악은 처음부터 끝까지 빈틈없이 깐다(cover_all, 2026-11 릴스식). 목소리 아래에서는 compose가 줄인다.
 
-LLM 호출 한 번(스토리보드 LLM과 같은 provider). 실패하거나 더미 모드면 빈 계획 — 음악 없이,
-무음 컷만 남기고 자른다. 결과는 job/edit_plan.json에 남는다.
+LLM 호출 한 번(스토리보드 LLM과 같은 provider). 실패하면 기본 곡 하나로 전체를 덮고, 무음 컷만 남기고 자른다. 결과는 job/edit_plan.json에 남는다.
 """
 
 from __future__ import annotations
@@ -53,6 +52,30 @@ def cut_table(sb: Storyboard) -> str:
     return "\n".join(rows)
 
 
+DEFAULT_MUSIC_PROMPT = (
+    "Understated drama underscore, soft felt piano with warm strings, gentle and steady, medium-slow tempo, no vocals."
+)
+
+
+def cover_all(plan: EditPlan, sb: Storyboard) -> EditPlan:
+    """음악 구간을 첫 컷부터 마지막 컷까지 빈틈없이 잇는다. 곡이 없으면 기본 곡 하나로 덮는다.
+    plan은 checked()를 거쳐 구간이 정렬돼 있고 겹치지 않는다."""
+    if not sb.cuts:
+        return plan
+    first, last = sb.cuts[0].index, sb.cuts[-1].index
+    cues = list(plan.music) or [MusicCue(from_cut=first, to_cut=last, prompt=DEFAULT_MUSIC_PROMPT)]
+    out: list[MusicCue] = []
+    for k, cue in enumerate(cues):
+        begin = first if not out else out[-1].to_cut + 1
+        end = last if k == len(cues) - 1 else cue.to_cut
+        if begin > end:  # 앞 곡이 이 구간을 이미 덮었다
+            continue
+        out.append(cue.model_copy(update={"from_cut": begin, "to_cut": end}))
+    if out[-1].to_cut != last:
+        out[-1] = out[-1].model_copy(update={"to_cut": last})
+    return plan.model_copy(update={"music": out})
+
+
 def plan_path(job: JobStore) -> Path:
     return job.dir / "edit_plan.json"
 
@@ -75,7 +98,7 @@ async def plan_edit(
 ) -> EditPlan:
     cached = None if force else load_plan(job)
     if cached is not None:
-        return cached.checked(sb)
+        return cover_all(cached.checked(sb), sb) if settings.music else cached.checked(sb)
     plan = EditPlan()
     if not settings.dummy:
         try:
@@ -92,9 +115,8 @@ async def plan_edit(
             )
         except Exception:
             log.exception("편집 계획 실패 — 음악 없이, 무음 컷만 남기고 자른다")
-    if not settings.music:
-        plan = plan.model_copy(update={"music": []})
     plan = plan.checked(sb)
+    plan = cover_all(plan, sb) if settings.music else plan.model_copy(update={"music": []})
     plan_path(job).write_text(json.dumps(plan.model_dump(), ensure_ascii=False, indent=1), encoding="utf-8")
     log.info("편집 계획: 남길 컷 %s, 음악 %d구간 — %s", plan.hold_cuts, len(plan.music), plan.reason)
     return plan
