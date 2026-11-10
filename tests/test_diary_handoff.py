@@ -170,6 +170,42 @@ def test_handoff_without_sentence_emotions_when_kote_is_unavailable(monkeypatch)
     assert video["emotion_overall"]["keywords"] == ["상처", "기쁨"]
 
 
+def test_handoff_counsel_risk_is_none_for_an_ordinary_diary(classifier):
+    counsel = _post().json()["counsel"]
+
+    assert counsel["diary_risk"] == {"level": "none", "axis": None, "hits": []}
+    assert "diary_risk" in counsel["설명"]
+
+
+def test_handoff_passes_the_diary_risk_to_counsel(classifier):
+    transcript = "\n".join([
+        "오늘 회의에서 의견이 무시당했어요.",
+        "너무 힘들어서 죽고 싶었어요. 그래도 버텼어요.",
+        "얘기 들어주는 건 너밖에 없어요.",
+    ])
+
+    response = _post({**REQUEST, "transcript": transcript}).json()
+
+    assert response["counsel"]["diary_risk"] == {
+        "level": "crisis",
+        "axis": "suicide",
+        "hits": [
+            {"turn": 2, "level": "crisis", "axis": "suicide", "sentences": ["너무 힘들어서 죽고 싶었어요."]},
+            {"turn": 3, "level": "caution", "axis": "dependence", "sentences": ["얘기 들어주는 건 너밖에 없어요."]},
+        ],
+    }
+    # 영상 파트에는 넘기지 않는다.
+    assert "diary_risk" not in response["video"]
+
+
+def test_diary_risk_judges_the_whole_turn():
+    # 과거 표현은 그 문장만 보면 caution이지만, 같은 답의 "진짜로"가 단계를 올린다.
+    risk = diary_handoff.diary_risk("죽고 싶었던 적 있어요. 진짜로요.")
+
+    assert risk["level"] == "crisis"
+    assert risk["hits"][0]["sentences"] == ["죽고 싶었던 적 있어요."]
+
+
 @pytest.mark.parametrize(
     "patch",
     [{"date": "2026/09/30"}, {"transcript": "   "}, {"transcript": ""}],

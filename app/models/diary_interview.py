@@ -34,7 +34,11 @@ class InterviewTurnResponse(BaseModel):
         False,
         description="마무리 확인에 더 없다고 했거나 질문 상한에 닿음 — 앱은 원문 확인으로 넘어간다.",
     )
-    crisis: bool = Field(False, description="위기 발화 — 앱은 대화를 멈추고 전문 기관을 안내한다.")
+    crisis: bool = Field(
+        False,
+        description="항상 false — 일기에서는 위기 발화에도 대화를 멈추지 않는다(감지 결과는 상담 "
+        "전달 JSON의 diary_risk로 넘긴다). 이전 앱과의 호환용으로 남겨 둔다.",
+    )
     slots: dict[str, str | None] = Field(
         default_factory=dict,
         description="육하원칙 칸 → 사용자가 말한 내용(빈 칸은 null). 칸을 알 수 없는 차례면 비어 있다.",

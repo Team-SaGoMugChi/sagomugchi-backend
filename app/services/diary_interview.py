@@ -32,6 +32,13 @@
     일기·영상·상담이 한쪽 이야기만 담는다. 상대 편을 들거나 누가 옳은지 따지지 않고 사실만
     묻는다. 갈등이 아닌 날에는 이 두 칸을 묻지도, 빈 칸(missing)으로 알리지도 않는다.
 
+걱정 (#123)
+    방금 한 말에 위험 발화(죽음·사라짐·폭력 등, counsel_guardrail 판정)가 있으면 라우트가
+    care=True로 부른다. 이 차례에는 빈 칸을 묻지 않고 공감·걱정만 하며 지금 마음을 한 번
+    묻는다. 대화를 멈추거나 상담센터·연락처를 말하지 않는다 — 감지 결과는 상담 전달 JSON
+    (diary_handoff의 diary_risk)으로 넘어가고 안내는 상담에서 한다. 짐작 공감 금지는 감정 분석이
+    탄카츄 말에 끌려가지 않게 하려는 것인데, 이 차례만큼은 걱정을 말하는 게 먼저다.
+
 질문은 최대 MAX_FOLLOW_UPS개(갈등이면 CONFLICT_EXTRA_FOLLOW_UPS개 더). 사용자가 끝까지 답하지 않는 칸이 있어도 대화는 끝나야 한다.
 키가 없거나 호출·파싱이 실패하면 고정 문구로 대신하고 경고를 남긴다 — 대화가 멈추지 않게.
 """
@@ -112,6 +119,31 @@ CLOSINGS = (
     "말해줘서 고마워요. 들은 대로 오늘 일기를 정리해볼게요.",
     "오늘도 이야기 나눠줘서 고마워요. 일기 정리하러 가볼게요.",
 )
+
+# 위험 발화를 들은 차례에 말 만들기가 실패했거나 지침을 어겼을 때 하는 말.
+CARE_LINES = (
+    "그런 마음까지 들었다니 걱정돼요. 지금은 마음이 좀 어때요?",
+    "많이 버거운 하루였네요. 걱정돼요. 지금은 좀 괜찮아요?",
+    "그렇게까지 힘들었군요. 지금 마음은 좀 어때요?",
+)
+# 위험 발화를 들은 차례가 마지막 차례일 때의 끝인사 — 걱정을 담는다.
+CARE_CLOSINGS = (
+    "이야기해줘서 고마워요. 마음이 많이 쓰여요. 들은 이야기로 일기를 정리해볼게요.",
+    "털어놔줘서 고마워요. 걱정돼요. 오늘 일기는 제가 잘 정리해둘게요.",
+)
+
+# 위험 발화를 들은 차례의 [이번에 할 일].
+CARE_TASK = (
+    "사용자가 [방금 한 말]에서 아주 힘든 마음(죽음·사라짐·다치게 함 같은 표현)이나 위험한 일을 말했다.\n"
+    "- 이번 차례만 [하지 않을 일]의 '감정 짐작 금지'를 지키지 않아도 된다. 마음을 알아주고 걱정된다고 말한다.\n"
+    "- 사용자가 쓴 위험한 표현(죽고 싶다, 사라지고 싶다 등)을 그대로 되받지 않는다.\n"
+    "- 방법·계획이나 그 일의 자세한 내용을 묻지 않는다. 일기 칸도 묻지 않는다.\n"
+    "- 상담센터·전화번호·병원을 말하지 않는다. 조언·해석·훈계를 하지 않는다.\n"
+    "- 마지막에 지금 마음이 어떤지 한 번만 부드럽게 묻는다."
+)
+
+# 걱정 차례의 말에 있으면 안 되는 것 — 위험 표현 되받기, 기관 안내.
+_CARE_FORBIDDEN = re.compile(r"\d|죽|자살|자해|사라지|없어지|상담|전화|센터|병원|기관|전문가")
 
 # 칸을 알 수 없을 때(LLM 실패) 차례대로 묻는 말. 마지막은 마무리 확인.
 FALLBACK_QUESTIONS = (
@@ -272,7 +304,7 @@ class _Facts:
 
 @dataclass
 class _Plan:
-    """서버가 고른 이번 차례의 할 일. kind: ask·listen·wrap·close"""
+    """서버가 고른 이번 차례의 할 일. kind: ask·listen·wrap·close·care"""
 
     kind: str
     targets: tuple[str, ...] = ()
@@ -402,6 +434,8 @@ def _task(plan: _Plan) -> str:
         )
     if plan.kind == "listen":
         return "질문하지 않는다. 짧게 맞장구치며 이어서 들려달라고 한다. 물음표를 쓰지 않는다."
+    if plan.kind == "care":
+        return CARE_TASK
     return f'짧게 반응한 뒤 "{WRAP_UP_MARK}"가 있는지 묻는다. "{WRAP_UP_MARK}"라는 구절을 꼭 넣는다.'
 
 
@@ -443,6 +477,13 @@ def _tidy(reply: str, user_said: str) -> str:
 
 def _guard(reply: str, plan: _Plan, user_said: str) -> str:
     """말이 할 일을 어기면 고정 문구로 — 맞장구인데 묻거나, 물어야 하는데 안 묻거나."""
+    if plan.kind == "care":
+        # 걱정은 짐작 공감이라 _tidy로 정리하지 않는다. 위험 표현을 되받거나 기관을 말하거나
+        # 지금 마음을 묻지 않으면 고정 문구로.
+        reply = reply.strip()
+        if not reply or "?" not in reply or _CARE_FORBIDDEN.search(reply):
+            return _fixed_line(plan)
+        return reply
     reply = _tidy(reply, user_said)
     if plan.kind == "listen":
         # 맞장구 차례엔 빈 칸을 알려주지 않아서, 여기서 나온 질문은 엉뚱하거나 들은 걸 되묻는다.
@@ -462,16 +503,23 @@ def _fixed_line(plan: _Plan) -> str:
         "listen": lambda: random.choice(LISTENINGS),
         "wrap": lambda: WRAP_UP,
         "close": lambda: random.choice(CLOSINGS),
+        "care": lambda: random.choice(CARE_LINES),
     }[plan.kind]()
 
 
-def _fallback(asked: int, remaining: int, wrapping_up: bool) -> InterviewTurn:
+def _fallback(asked: int, remaining: int, wrapping_up: bool, care: bool) -> InterviewTurn:
+    if care:
+        done = remaining == 0
+        return InterviewTurn(reply=random.choice(CARE_CLOSINGS if done else CARE_LINES), done=done)
     if remaining > 0 and not wrapping_up and asked < len(FALLBACK_QUESTIONS):
         return InterviewTurn(reply=FALLBACK_QUESTIONS[asked], done=False)
     return InterviewTurn(reply=random.choice(CLOSINGS), done=True)
 
 
-def next_turn(history: Sequence[InterviewMessage], user_text: str) -> InterviewTurn:
+def next_turn(
+    history: Sequence[InterviewMessage], user_text: str, care: bool = False
+) -> InterviewTurn:
+    """care: 방금 한 말에 위험 발화가 있다 — 이번 차례는 빈 칸 대신 공감·걱정만 한다."""
     asked = follow_ups_asked(history)
     remaining = max(MAX_FOLLOW_UPS - asked, 0)
     try:
@@ -480,19 +528,21 @@ def next_turn(history: Sequence[InterviewMessage], user_text: str) -> InterviewT
         # 키 미설정·네트워크 오류·JSON 형식 오류 — 대화가 멈추지 않도록 고정 문구로.
         # 사용자 발화는 로그에 남기지 않는다.
         logger.warning("diary interview fell back to a fixed line: %s", type(exc).__name__)
-        return _fallback(asked, remaining, _just_asked_wrap_up(history))
+        return _fallback(asked, remaining, _just_asked_wrap_up(history), care)
 
     if facts.conflict:
         remaining = max(MAX_FOLLOW_UPS + CONFLICT_EXTRA_FOLLOW_UPS - asked, 0)
     plan = _plan(facts, history, user_text, remaining)
+    # 끝내는 차례가 아니면 걱정이 먼저다. 다음 차례부터 다시 빈 칸을 묻는다.
+    if care and plan.kind != "close":
+        plan = _Plan("care")
     user_said = " ".join([*(m.text for m in history if m.speaker == "user"), user_text])
     try:
         # 끝인사는 고정 문구라 말 만들기를 부르지 않는다.
-        reply = (
-            _fixed_line(plan)
-            if plan.kind == "close"
-            else _guard(_compose(history, user_text, facts, plan), plan, user_said)
-        )
+        if plan.kind == "close":
+            reply = random.choice(CARE_CLOSINGS) if care else _fixed_line(plan)
+        else:
+            reply = _guard(_compose(history, user_text, facts, plan), plan, user_said)
     except Exception as exc:
         # 칸은 알았으니 할 일에 맞는 고정 문구로 잇는다.
         logger.warning("diary interview reply fell back to a fixed line: %s", type(exc).__name__)

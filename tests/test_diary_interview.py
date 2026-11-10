@@ -444,15 +444,113 @@ def test_interview_prompt_keeps_the_summary_to_what_the_user_said():
     assert "말하지 않은 감정이나 내용은 넣지 않는다" in prompt
 
 
-def test_interview_turn_stops_on_crisis_without_llm(monkeypatch):
-    calls = _fake_chat(monkeypatch, AssertionError("LLM must not be called"))
+# --- 위험 발화: 일기에서는 멈추지 않고 공감·걱정만 한다 (#123) ---
 
-    body = _post(user_text="요즘은 그냥 죽고 싶다는 생각만 들어요.").json()
+RISKY = "오늘 회사에서 너무 힘들어서 죽고 싶었어요."
+CARE_REPLY = "그런 마음까지 들었다니 걱정돼요. 지금은 좀 괜찮아요?"
 
-    assert body["crisis"] is True
+
+@pytest.mark.parametrize(
+    "user_text",
+    [
+        RISKY,
+        "요즘은 그냥 죽고 싶다는 생각만 들어요.",
+        "아침에 눈 안 떴으면 좋겠다는 생각이 들었어요.",
+        "아빠가 물건을 던졌어요.",
+    ],
+)
+def test_interview_turn_keeps_talking_with_care_on_risky_words(monkeypatch, user_text):
+    calls = _fake_chat(monkeypatch, _facts(무엇을="회사 일"), CARE_REPLY)
+
+    body = _post(user_text=user_text).json()
+
+    assert body["reply"] == CARE_REPLY
+    assert body["crisis"] is False
     assert body["done"] is False
-    assert "109" in body["reply"]
-    assert calls == []
+    # 칸은 평소처럼 채워서 돌려준다.
+    assert body["slots"]["무엇을"] == "회사 일"
+    task = _task(calls)
+    assert diary_interview.CARE_TASK in task
+    assert "걱정" in task and "전화번호" in task and "그대로 되받지 않는다" in task
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "죽고 싶을 만큼 힘들었군요. 지금은 어때요?",  # 위험 표현 되받기
+        "많이 힘들었군요. 자살예방상담전화 109에 전화해 보세요?",  # 기관 안내
+        "전문가와 이야기해 보는 건 어때요?",
+        "많이 힘들었군요. 걱정돼요.",  # 지금 마음을 묻지 않음
+        "",
+    ],
+)
+def test_care_reply_falls_back_when_it_breaks_the_rules(monkeypatch, reply):
+    _fake_chat(monkeypatch, _facts(무엇을="회사 일"), reply)
+
+    body = _post(user_text=RISKY).json()
+
+    assert body["reply"] in diary_interview.CARE_LINES
+    assert body["done"] is False
+
+
+def test_care_lines_follow_their_own_rules():
+    for line in diary_interview.CARE_LINES:
+        assert "?" in line
+        assert not diary_interview._CARE_FORBIDDEN.search(line)
+
+
+def test_after_a_care_turn_the_interview_goes_back_to_slots(monkeypatch):
+    """걱정 차례 다음에는 평소처럼 빈 칸을 묻는다 — 직전에 마음을 물었으니 기분 칸은 건너뛴다."""
+    calls = _fake_chat(
+        monkeypatch,
+        _facts(무엇을="회사 일", 어떻게="야근이 길어짐"),
+        "아, 야근이 길었군요. 누구랑 같이 있었어요?",
+    )
+    history = [OPENING, {"speaker": "user", "text": RISKY}, {"speaker": "oddo", "text": CARE_REPLY}]
+
+    body = _post(user_text="지금은 좀 나아요.", history=history).json()
+
+    assert body["reply"] == "아, 야근이 길었군요. 누구랑 같이 있었어요?"
+    assert "그때 기분" not in _task(calls)
+
+
+def test_care_on_the_last_turn_closes_with_concern(monkeypatch):
+    calls = _fake_chat(monkeypatch, _facts(무엇을="회사 일"), AssertionError("no compose"))
+
+    body = _post(
+        user_text=RISKY, history=_history_with_follow_ups(diary_interview.MAX_FOLLOW_UPS)
+    ).json()
+
+    assert body["done"] is True
+    assert body["crisis"] is False
+    assert body["reply"] in diary_interview.CARE_CLOSINGS
+    assert len(calls) == 1  # 끝인사는 고정 문구
+
+
+@pytest.mark.parametrize("failing_call", ["extract", "compose"])
+def test_care_falls_back_to_a_caring_line_when_the_llm_fails(monkeypatch, failing_call):
+    responses = (
+        (RuntimeError("down"),)
+        if failing_call == "extract"
+        else (_facts(무엇을="회사 일"), RuntimeError("down"))
+    )
+    _fake_chat(monkeypatch, *responses)
+
+    body = _post(user_text=RISKY).json()
+
+    assert body["reply"] in diary_interview.CARE_LINES
+    assert body["done"] is False
+    assert body["crisis"] is False
+
+
+def test_dependence_is_not_a_care_turn(monkeypatch):
+    """"너밖에 없어"는 걱정할 말이 아니라 평소처럼 빈 칸을 묻는다."""
+    calls = _fake_chat(monkeypatch, _facts(무엇을="회의"), "그 회의는 어디에서 있었어요?")
+
+    body = _post(user_text="오늘 얘기 들어주는 건 너밖에 없어요.").json()
+
+    assert body["reply"] == "그 회의는 어디에서 있었어요?"
+    assert diary_interview.CARE_TASK not in _task(calls)
 
 
 @pytest.mark.parametrize(

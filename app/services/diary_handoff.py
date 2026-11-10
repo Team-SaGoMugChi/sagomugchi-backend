@@ -17,14 +17,17 @@
 상담용 `oddo.counsel_context.v1`
     /counsel/turn 요청 필드 이름(emotions·signals·diary_summary·incongruent)을 그대로 써서
     그대로 옮겨 담을 수 있게 하고, 상담에 쓸 맥락(대화 칸·정제 일기·감정 흐름)을 더했다.
+    diary_risk(#123): 일기에서는 위험 발화에도 대화를 멈추거나 기관을 안내하지 않으므로, 원문
+    차례마다 상담과 같은 판정(counsel_guardrail.assess)을 돌려 상담에 넘긴다.
 """
 
 import logging
 from collections.abc import Sequence
 
 from app.models.diary_handoff import HandoffRequest
+from app.services.counsel_guardrail import RiskLevel, assess
 from app.services.multimodal_fusion import text_valence
-from app.services.sentence_emotion import iter_turn_sentences
+from app.services.sentence_emotion import iter_turn_sentences, split_sentences
 from app.services.text_emotion import EMOTION_LABELS, TextEmotionClassifier, get_text_emotion_classifier
 
 logger = logging.getLogger(__name__)
@@ -70,7 +73,15 @@ COUNSEL_GUIDE = {
     "diary_text": "대화를 정제하고 사용자가 확인한 일기. 없으면 null.",
     "slots": "대화에서 모은 칸(육하원칙 + 그때 기분·기분 변화·지금 기분, 누군가와 부딪힌 날엔 상대 발언·상대 상황). 사용자가 말한 대로.",
     "emotion_arc": "감정 흐름 한 줄. turning_points는 감정 톤이 바뀐 문장.",
+    "diary_risk": (
+        "일기 대화에서 감지한 위험 발화(상담과 같은 판정, docs/CRISIS_POLICY.md). level은 일기 전체에서 가장 "
+        "높은 단계(crisis/caution/none), axis는 그 위험의 종류(suicide·danger·harm_others·psychosis·dependence), "
+        "hits는 걸린 차례(turn)·단계·종류·문장. 일기에서는 탄카츄가 공감·걱정만 하고 연락처를 안내하지 않았다 — "
+        "마음 확인과 안내는 상담에서 한다. 키워드 판정이라 과거형('죽고 싶었다')이나 일상 표현도 걸릴 수 있다."
+    ),
 }
+
+_RISK_RANK = {RiskLevel.NONE.value: 0, RiskLevel.CAUTION.value: 1, RiskLevel.CRISIS.value: 2}
 
 
 def tone_of(scores_0_100: dict[str, float]) -> str:
@@ -185,6 +196,34 @@ def _classifier() -> TextEmotionClassifier | None:
         return None
 
 
+def diary_risk(transcript: str) -> dict:
+    """원문 차례(줄)마다 위험 발화를 판정한다.
+
+    판정은 차례 단위로 한다 — 같은 답 안의 "진짜로" 같은 말이 단계를 바꾸기 때문이다. 상담이
+    짚을 문장은 걸린 문장만 고르고, 문장 하나로는 걸리지 않으면 차례 전체를 넣는다.
+    """
+    hits = []
+    turns = [line for line in transcript.splitlines() if line.strip()]
+    for turn, line in enumerate(turns, start=1):
+        risk = assess(line)
+        if risk.level is RiskLevel.NONE:
+            continue
+        sentences = [s for s in split_sentences(line) if assess(s).level is not RiskLevel.NONE]
+        hits.append({
+            "turn": turn,
+            "level": risk.level.value,
+            "axis": risk.axis.value if risk.axis else None,
+            "sentences": sentences or [line.strip()],
+        })
+    # 가장 높은 단계 중 먼저 나온 것.
+    top = max(hits, key=lambda h: _RISK_RANK[h["level"]], default=None)
+    return {
+        "level": top["level"] if top else RiskLevel.NONE.value,
+        "axis": top["axis"] if top else None,
+        "hits": hits,
+    }
+
+
 def _title_hint(req: HandoffRequest, sentences: Sequence[dict]) -> str | None:
     what = req.slots.get("무엇을")
     if what and what.strip():
@@ -248,5 +287,6 @@ def build_handoff(req: HandoffRequest) -> tuple[dict, dict]:
         "slots": slots,
         "emotion_arc": arc,
         "turning_points": [{"from": p["from"], "to": p["to"], "sentence": p["sentence"]} for p in turning_points],
+        "diary_risk": diary_risk(req.transcript),
     }
     return video, counsel

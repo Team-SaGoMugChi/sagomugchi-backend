@@ -11,7 +11,7 @@ from app.models.diary_interview import (
     RefineResponse,
 )
 from app.services import diary_interview, diary_refine, interview_emotion
-from app.services.counsel_guardrail import RiskLevel, assess, crisis_reply
+from app.services.counsel_guardrail import RiskAxis, RiskLevel, assess
 from app.services.kote_emotion import TextEmotionUnavailable
 from app.services.text_emotion import get_text_emotion_classifier
 
@@ -20,13 +20,14 @@ router = APIRouter(prefix="/diary", tags=["diary"])
 
 @router.post("/interview/turn", response_model=InterviewTurnResponse)
 async def interview_turn(payload: InterviewTurnRequest) -> InterviewTurnResponse:
-    # 위기 발화는 상담과 같은 기준으로 LLM에 보내지 않고 축에 맞는 안내로 응답한다.
+    # 일기는 있는 그대로 기록하는 곳이라 위험 발화가 있어도 대화를 멈추거나 기관을 안내하지
+    # 않는다. 탄카츄가 공감·걱정하며 이어가고, 감지 결과는 상담 전달 JSON(diary_risk)으로
+    # 넘겨 상담에서 다룬다(#123). AI 의존("너밖에 없어")은 걱정할 말이 아니라 평소처럼 잇는다.
     risk = assess(payload.user_text)
-    if risk.level is RiskLevel.CRISIS:
-        return InterviewTurnResponse(reply=crisis_reply(risk), crisis=True)
+    care = risk.level is not RiskLevel.NONE and risk.axis is not RiskAxis.DEPENDENCE
 
     turn = await run_in_threadpool(
-        diary_interview.next_turn, payload.history, payload.user_text
+        diary_interview.next_turn, payload.history, payload.user_text, care
     )
     return InterviewTurnResponse(
         reply=turn.reply,
