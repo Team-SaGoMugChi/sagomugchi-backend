@@ -69,14 +69,14 @@ def test_too_few_cuts_is_fed_back():
     sb, llm = _plan(_payload([8, 8]), _payload([4, 4, 6]))
 
     assert len(sb.cuts) == 3
-    assert "컷이 2개다. 3~10개여야 한다." in llm.users[1]
+    assert "컷이 2개다. 3~18개여야 한다." in llm.users[1]
 
 
-def test_total_length_over_40_seconds_is_fed_back():
-    sb, llm = _plan(_payload([8] * 6), _payload([8, 6, 6, 4]))
+def test_total_length_over_60_seconds_is_fed_back():
+    sb, llm = _plan(_payload([8] * 8), _payload([8, 6, 6, 4]))
 
     assert sb.total_seconds == 24
-    assert "전체 길이가 48초다. 12~40초여야 한다." in llm.users[1]
+    assert "전체 길이가 64초다. 12~60초여야 한다." in llm.users[1]
 
 
 def test_total_length_under_12_seconds_is_fed_back():
@@ -122,9 +122,9 @@ def test_prompt_states_length_ranges_and_per_length_limits():
     _, llm = _plan(_payload([4, 4, 4]))
     system = llm.systems[0]
 
-    assert "3~10개" in system
+    assert "3~18개" in system
     assert "4 / 6 / 8초 중 하나만" in system
-    assert "12~40초" in system
+    assert "12~60초" in system
     assert "4초 14자 / 6초 24자 / 8초 34자" in system
     assert "4초 14자 / 6초 26자 / 8초 38자" in system
     assert "{{" not in system
@@ -157,20 +157,20 @@ def test_eight_second_cut_with_four_second_narration_is_fed_back():
 
 
 def test_near_cap_lists_cuts_that_four_seconds_would_fit():
-    near_cap = _payload([6, 6, 6, 6, 6, 6])  # 36초, 나레이션은 모두 14자 이하
+    near_cap = _payload([6] * 10)  # 60초, 나레이션은 모두 14자 이하
     sb, llm = _plan(near_cap, _payload([4, 4, 6, 4]))
 
     assert sb.total_seconds == 18
-    assert "전체 길이가 36초로 상한에 가깝다. 컷 1·2·3·4·5·6은" in llm.users[1]
+    assert "전체 길이가 60초로 상한에 가깝다. 컷 1·2·3·4·5·6·7·8·9·10은" in llm.users[1]
 
 
 def test_near_cap_is_fine_when_cuts_need_their_length():
-    near_cap = _payload([6, 6, 6, 6, 6, 6])
+    near_cap = _payload([6] * 10)
     for cut in near_cap["cuts"]:
         cut["narration"] = "그는 노트를 덮고 숨을 골랐어요."  # 18자 — 4초 상한을 넘는다
     sb, llm = _plan(near_cap)
 
-    assert sb.total_seconds == 36
+    assert sb.total_seconds == 60
     assert len(llm.users) == 1
 
 

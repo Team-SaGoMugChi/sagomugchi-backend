@@ -38,7 +38,7 @@ log = logging.getLogger(__name__)
 
 # 안전 필터 거절 시 다시 그리는 횟수와 넓혀 갈 구도.
 BLOCK_REDRAWS = 2
-WIDER: dict[str, CameraDistance] = {"medium": "full", "full": "wide", "wide": "wide"}
+WIDER: dict[str, CameraDistance] = {"medium": "full", "full": "wide", "wide": "wide", "insert": "insert"}
 WIDER_NOTE = "Seen from farther away: everyone is visible from head to toe and faces are small in the frame."
 
 
@@ -181,7 +181,7 @@ class Pipeline:
         for index in cuts:
             cut = sb.cut(index)
             cut.camera_distance = WIDER[cut.camera_distance]
-            if WIDER_NOTE not in cut.image_prompt:
+            if cut.camera_distance != "insert" and WIDER_NOTE not in cut.image_prompt:
                 cut.image_prompt = f"{cut.image_prompt} {WIDER_NOTE}"
         self.job.save_storyboard(sb)
         await self.build_images(sb, only=cuts, force=True)

@@ -461,9 +461,22 @@ def lint_diary_quotes(sb: Storyboard, diary_text: str) -> list[Violation]:
     return out
 
 
+MAX_DIALOGUE_CUTS = 12
+
+
+def lint_dialogue_count(sb: Storyboard) -> list[Violation]:
+    """대사 한 줄에 컷 하나(릴스식)로 대사 컷이 늘었다. 일기에 없는 말로 채우지 않게 상한을 둔다."""
+    n = sum(1 for c in sb.cuts if c.is_dialogue)
+    if n <= MAX_DIALOGUE_CUTS:
+        return []
+    return [Violation(field="dialogue", rule="대사 컷 수",
+                      detail=f"대사 컷이 {n}개다. 많아야 {MAX_DIALOGUE_CUTS}개다. 일기에 적힌 말만 대사로 남긴다.")]
+
+
 def lint_storyboard(sb: Storyboard, diary_text: str = "") -> list[Violation]:
     out: list[Violation] = []
     out += lint_diary_quotes(sb, diary_text)
+    out += lint_dialogue_count(sb)
     names = {c.name for c in sb.characters}
     out += lint_gender(sb)
     for c in sb.characters:

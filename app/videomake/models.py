@@ -23,8 +23,10 @@ from .config import (
     dialogue_max_chars,
 )
 
-# 클로즈업 계열이 아예 표현 불가능하도록 세 값만 허용한다. (연출 원칙 2)
-CameraDistance = Literal["wide", "full", "medium"]
+# 사람 얼굴 클로즈업이 아예 표현 불가능하도록 사람 거리는 세 값만 허용한다. (연출 원칙 2)
+# insert는 사람 없이 물건만 가깝게 보여주는 컷이다(릴스의 소품 인서트, 2026-11). 얼굴이 없어 거리두기와 맞는다.
+CameraDistance = Literal["wide", "full", "medium", "insert"]
+TIME_CARD_MAX_CHARS = 8
 
 # 컷 감정. 감정 분석 6종 + 감정이 두드러지지 않는 "평온". 컷 그림의 빛·색감·표정과
 # 영상의 분위기가 이 값을 따른다(prompts/mood.j2). 일기 장면의 감정이 영상에 드러나게 한다.
@@ -165,6 +167,8 @@ class Cut(BaseModel):
     cast: list[CastMember] = Field(default_factory=list)
     # 컷 안의 샷들(제작팀 촬영감독). 비어 있으면 한 샷. 있으면 첫 샷이 컷 그림이고 합이 컷 길이와 같다.
     shots: list[Shot] = Field(default_factory=list)
+    # 앞 컷과 시간이 떨어질 때 컷 첫머리에 잠깐 띄우는 글자("다음 날", "그날 밤"). 비어 있으면 없다.
+    time_card: str = ""
 
     @property
     def is_dialogue(self) -> bool:
@@ -185,6 +189,14 @@ class Cut(BaseModel):
             raise ValueError(f"샷 길이의 합이 컷 길이({self.duration_seconds}초)와 같아야 한다.")
         if self.dialogue:
             raise ValueError("대사 컷은 샷을 나누지 않는다(입 모양·목소리 맞추기).")
+        return self
+
+    @model_validator(mode="after")
+    def _insert_shows_only_things(self) -> Cut:
+        if self.camera_distance == "insert" and (self.cast or self.dialogue):
+            raise ValueError("insert 컷은 사람 없이 물건만 보여준다. cast와 dialogue를 비운다.")
+        if len(self.time_card) > TIME_CARD_MAX_CHARS:
+            raise ValueError(f"time_card는 {TIME_CARD_MAX_CHARS}자 이내다(예: \"다음 날\").")
         return self
 
     @model_validator(mode="after")
@@ -272,7 +284,10 @@ class Storyboard(BaseModel):
         return self
 
     def visible_cast(self, cut: Cut) -> list[CastMember]:
-        """그 컷 화면에 보이는 인물. cast가 비어 있으면 주인공 혼자 가운데에 있다고 본다."""
+        """그 컷 화면에 보이는 인물. cast가 비어 있으면 주인공 혼자 가운데에 있다고 본다(옛 스토리보드).
+        insert 컷은 물건만 보여주므로 아무도 없다."""
+        if cut.camera_distance == "insert":
+            return []
         return cut.cast or [CastMember(name=self.protagonist.name, position="center")]
 
     @property

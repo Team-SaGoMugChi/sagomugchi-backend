@@ -120,10 +120,11 @@ class Settings(BaseSettings):
     image_size: Literal["1K", "2K"] = "1K"
     # 영상 길이는 일기마다 LLM이 정한다(컷 수·컷별 길이). 그 범위만 여기서 막는다.
     # 짧은 일기에 48초를 고정으로 만들면 생성 시간과 비용이 낭비된다.
+    # 대사 한 줄에 한 샷(릴스식, 2026-11)으로 대사 컷이 늘어 컷 수·길이 상한을 올렸다(10개·40초 → 18개·60초).
     min_cuts: int = 3
-    max_cuts: int = 10
+    max_cuts: int = 18
     min_total_seconds: int = 12
-    max_total_seconds: int = 40
+    max_total_seconds: int = 60
 
     # 대사 없는 컷의 장면 소리(발소리·거리·그릇 소리). "ambient"(기본)는 Veo가 모든 컷에서
     # 장면 소리를 만들고 나레이션 아래에 작게 깐다 — 무음 컷이 완전히 비지 않는다.
@@ -180,18 +181,23 @@ class Settings(BaseSettings):
     # 목소리가 끝난 뒤 남기는 여유. 0.35초는 다급하게 느껴졌고 1.1초로 정했다(2026-10 사용자 비교).
     edit_tail_seconds: float = 1.1
     edit_flow_tail_seconds: float = 0.4  # 쉼표로 끝나 다음 컷으로 말이 이어질 때
+    # 대사를 주고받을 때(대사 컷 뒤에 또 대사 컷). 릴스는 한 줄이 끝나면 바로 상대 얼굴로 넘어간다(샷 평균 2~3초).
+    edit_exchange_tail_seconds: float = 0.5
     edit_min_cut_seconds: float = 2.2
     narration_delay_ms: int = 300  # 컷이 시작하고 목소리가 들어오기까지
 
     # --- 배경음악 ------------------------------------------------------------
-    # 편집 계획(LLM)이 분위기상 필요하다고 본 구간에만 깐다. 대부분의 영상은 음악 없이
-    # 목소리와 장면 소리만 둔다. 깔 때는 목소리 아래에서 작게 들리게 한다.
+    # 릴스처럼 처음부터 끝까지 끊김 없이 깐다(2026-11 사용자 요청). 곡은 편집 계획(LLM)이 1~2개 고른다.
+    # 목소리가 나오는 동안만 music_duck_db만큼 줄인다 — 목소리 아래 크기는 예전 값(-44dB)과 같다.
+    # 예전에는 목소리 아래에 -34dB로 깔았더니 컸다(2026-11 사용자 의견).
     music: bool = True
     music_model: str = "lyria-002"
-    music_level_db: float = -44.0  # 음악 크기(dBFS RMS). 나레이션은 약 -15dB. -34는 컸다(2026-11 사용자 의견)
+    music_level_db: float = -32.0  # 목소리가 없을 때 음악 크기(dBFS RMS). 나레이션은 약 -15dB
+    music_duck_db: float = -12.0  # 목소리가 나오는 동안 줄이는 양(→ 약 -44dB)
 
     # --- 비용 가드 ---------------------------------------------------------
-    max_cost_usd: Decimal = Decimal("6.00")
+    # 대사 컷이 늘어 한 편이 약 $9~11이 됐다(2026-11, 컷 14~18개).
+    max_cost_usd: Decimal = Decimal("12.00")
 
     # --- 실행 ---------------------------------------------------------------
     # true면 Gemini/Veo 대신 ffmpeg로 만든 더미 산출물을 쓴다(providers/fake.py). 과금 0.

@@ -86,7 +86,9 @@ class _CutDraft(BaseModel):
     # Optional 타입을 쓰면 구조화 출력 스키마가 nullable이 되어 LLM이 헷갈린다.
     narration: str
     dialogue: list[_LineDraft]
-    camera_distance: Literal["wide", "full", "medium"]
+    camera_distance: Literal["wide", "full", "medium", "insert"]
+    # 앞 컷과 시간이 떨어질 때만("다음 날"). 아니면 빈 문자열.
+    time_card: str = ""
     # 컷마다 LLM이 장면에 필요한 만큼 고른다. Veo는 4·6·8초만 만든다.
     duration_seconds: CutSeconds
     # 그 컷이 담은 장면의 감정. 빛·색감·표정이 따라간다.
@@ -161,6 +163,7 @@ class _StoryboardDraft(BaseModel):
             narration=c.narration.strip() or None,
             dialogue=[Line(**line.model_dump()) for line in c.dialogue],
             camera_distance=c.camera_distance,
+            time_card=c.time_card.strip(),
             duration_seconds=c.duration_seconds,
             mood=c.mood,
             location=c.location,
